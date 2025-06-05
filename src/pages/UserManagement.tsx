@@ -43,17 +43,24 @@ const UserManagement: React.FC = () => {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (usersError) throw usersError;
+      if (usersError) {
+        console.error('Database error:', usersError);
+        throw new Error('Failed to load users from database');
+      }
 
       if (!users) {
         throw new Error('No users data received');
       }
 
       const mappedUsers = users.map(user => ({
-        ...user,
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role as UserRole,
         createdAt: new Date(user.created_at)
       }));
 
+      console.log('Loaded users:', mappedUsers);
       setUsers(mappedUsers);
     } catch (error: any) {
       console.error('Failed to load users:', error);
@@ -70,7 +77,7 @@ const UserManagement: React.FC = () => {
     setSuccessMessage(null);
     
     try {
-      // First create the auth user
+      // Create auth user first
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
@@ -85,11 +92,11 @@ const UserManagement: React.FC = () => {
       if (signUpError) throw signUpError;
       if (!authData.user) throw new Error('Failed to create auth user');
 
-      // Then insert into users table using the auth user's ID
+      // Insert into users table using the auth user's ID
       const { error: insertError } = await supabase
         .from('users')
         .insert({
-          id: authData.user.id, // Use the auth user's ID
+          id: authData.user.id,
           email: formData.email,
           name: formData.name,
           role: formData.role
@@ -106,7 +113,7 @@ const UserManagement: React.FC = () => {
       });
       
       setSuccessMessage('User created successfully');
-      await loadUsers();
+      await loadUsers(); // Reload the users list
       
       setTimeout(() => {
         setSuccessMessage(null);
@@ -125,6 +132,7 @@ const UserManagement: React.FC = () => {
     
     setError(null);
     try {
+      // Delete from users table first
       const { error: deleteError } = await supabase
         .from('users')
         .delete()
@@ -132,7 +140,14 @@ const UserManagement: React.FC = () => {
       
       if (deleteError) throw deleteError;
 
-      await loadUsers();
+      // Then delete the auth user
+      const { error: authDeleteError } = await supabase.auth.admin.deleteUser(userId);
+      
+      if (authDeleteError) {
+        console.warn('Failed to delete auth user:', authDeleteError);
+      }
+
+      await loadUsers(); // Reload the users list
       setSuccessMessage('User deleted successfully');
       
       setTimeout(() => {
