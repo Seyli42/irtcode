@@ -26,6 +26,7 @@ const Statistics: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [filteredInterventions, setFilteredInterventions] = useState(getUserInterventions());
   
   const interventions = getUserInterventions();
   const isAdmin = user?.role === 'admin';
@@ -36,22 +37,19 @@ const Statistics: React.FC = () => {
       const loadUsers = async () => {
         setLoadingUsers(true);
         try {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (!session) throw new Error('No session');
-
-          const { data, error } = await supabase
+          const { data: users, error } = await supabase
             .from('users')
             .select('*')
             .order('name');
             
           if (error) throw error;
           
-          setUsers(data.map(user => ({
+          setUsers(users.map(user => ({
             ...user,
             createdAt: new Date(user.created_at)
           })));
         } catch (error) {
-          console.error('Error loading users:', error);
+          console.error('Erreur chargement utilisateurs:', error);
         } finally {
           setLoadingUsers(false);
         }
@@ -61,42 +59,44 @@ const Statistics: React.FC = () => {
     }
   }, [isAdmin]);
   
-  const getFilteredInterventions = () => {
-    let filtered = selectedUser
-      ? interventions.filter(i => i.userId === selectedUser.id)
-      : interventions;
-    
-    if (showDateRange) {
-      return filtered.filter(i => {
-        const interventionDate = new Date(i.date);
-        return isWithinInterval(interventionDate, {
-          start: new Date(startDate),
-          end: new Date(endDate)
+  useEffect(() => {
+    const getFilteredInterventions = () => {
+      let filtered = selectedUser
+        ? interventions.filter(i => i.userId === selectedUser.id)
+        : interventions;
+      
+      if (showDateRange) {
+        return filtered.filter(i => {
+          const interventionDate = new Date(i.date);
+          return isWithinInterval(interventionDate, {
+            start: new Date(startDate),
+            end: new Date(endDate)
+          });
         });
-      });
-    }
-    
-    const now = new Date();
-    let cutoffDate = new Date();
-    
-    if (period === 'day') {
-      cutoffDate.setDate(now.getDate() - 1);
-    } else if (period === 'week') {
-      cutoffDate.setDate(now.getDate() - 7);
-    } else if (period === 'month') {
-      return filtered.filter(i => {
-        const interventionDate = new Date(i.date);
-        return isWithinInterval(interventionDate, {
-          start: startOfMonth(now),
-          end: endOfMonth(now)
+      }
+      
+      const now = new Date();
+      let cutoffDate = new Date();
+      
+      if (period === 'day') {
+        cutoffDate.setDate(now.getDate() - 1);
+      } else if (period === 'week') {
+        cutoffDate.setDate(now.getDate() - 7);
+      } else if (period === 'month') {
+        return filtered.filter(i => {
+          const interventionDate = new Date(i.date);
+          return isWithinInterval(interventionDate, {
+            start: startOfMonth(now),
+            end: endOfMonth(now)
+          });
         });
-      });
-    }
-    
-    return filtered.filter(i => i.date >= cutoffDate);
-  };
-  
-  const filteredInterventions = getFilteredInterventions();
+      }
+      
+      return filtered.filter(i => i.date >= cutoffDate);
+    };
+
+    setFilteredInterventions(getFilteredInterventions());
+  }, [interventions, selectedUser, period, startDate, endDate, showDateRange]);
   
   const handleExportCSV = () => {
     const csv = generateCSV(filteredInterventions, selectedUser);
