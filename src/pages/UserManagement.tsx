@@ -38,17 +38,12 @@ const UserManagement: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      console.log('Fetching users...');
       const { data: users, error: usersError } = await supabase
         .from('users')
         .select('*')
         .order('created_at', { ascending: false });
 
-      console.log('Users response:', { users, usersError });
-
-      if (usersError) {
-        throw usersError;
-      }
+      if (usersError) throw usersError;
 
       if (!users) {
         throw new Error('No users data received');
@@ -59,11 +54,10 @@ const UserManagement: React.FC = () => {
         createdAt: new Date(user.created_at)
       }));
 
-      console.log('Mapped users:', mappedUsers);
       setUsers(mappedUsers);
     } catch (error: any) {
       console.error('Failed to load users:', error);
-      setError('Erreur lors du chargement des utilisateurs: ' + error.message);
+      setError('Error loading users: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -76,19 +70,7 @@ const UserManagement: React.FC = () => {
     setSuccessMessage(null);
     
     try {
-      // First create the user in the users table
-      const { error: insertError } = await supabase
-        .from('users')
-        .insert([{
-          email: formData.email,
-          name: formData.name,
-          role: formData.role,
-          created_at: new Date().toISOString()
-        }]);
-
-      if (insertError) throw insertError;
-
-      // Then create the auth user
+      // Create the auth user first
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
@@ -101,6 +83,18 @@ const UserManagement: React.FC = () => {
       });
 
       if (signUpError) throw signUpError;
+      if (!authData.user) throw new Error('Failed to create auth user');
+
+      // Then insert into users table
+      const { error: insertError } = await supabase
+        .from('users')
+        .insert({
+          email: formData.email,
+          name: formData.name,
+          role: formData.role
+        });
+
+      if (insertError) throw insertError;
 
       setShowForm(false);
       setFormData({
@@ -109,8 +103,8 @@ const UserManagement: React.FC = () => {
         role: 'employee',
         password: '',
       });
-      setSuccessMessage('Utilisateur créé avec succès');
       
+      setSuccessMessage('User created successfully');
       await loadUsers();
       
       setTimeout(() => {
@@ -119,14 +113,14 @@ const UserManagement: React.FC = () => {
       
     } catch (error: any) {
       console.error('Failed to add user:', error);
-      setError(error.message || 'Erreur lors de la création de l\'utilisateur');
+      setError(error.message || 'Error creating user');
     } finally {
       setIsSubmitting(false);
     }
   };
   
   const handleDeleteUser = async (userId: string) => {
-    if (!window.confirm('Êtes-vous sûr de vouloir supprimer cet utilisateur ?')) return;
+    if (!window.confirm('Are you sure you want to delete this user?')) return;
     
     setError(null);
     try {
@@ -138,27 +132,15 @@ const UserManagement: React.FC = () => {
       if (deleteError) throw deleteError;
 
       await loadUsers();
-      setSuccessMessage('Utilisateur supprimé avec succès');
+      setSuccessMessage('User deleted successfully');
       
       setTimeout(() => {
         setSuccessMessage(null);
       }, 3000);
     } catch (error: any) {
       console.error('Failed to delete user:', error);
-      setError(error.message || 'Erreur lors de la suppression de l\'utilisateur');
+      setError(error.message || 'Error deleting user');
     }
-  };
-
-  const debugUsers = async () => {
-    console.log('=== DEBUG USERS ===');
-    
-    const { data: tableUsers, error: tableError } = await supabase
-      .from('users')
-      .select('*');
-    console.log('Table users:', tableUsers, 'Error:', tableError);
-    
-    const { data: currentUser } = await supabase.auth.getUser();
-    console.log('Current user:', currentUser);
   };
   
   if (!isAllowed(['admin'])) {
@@ -190,7 +172,7 @@ const UserManagement: React.FC = () => {
       case 'auto-entrepreneur':
         return 'Auto-Entrepreneur';
       case 'employee':
-        return 'Employé';
+        return 'Employee';
       default:
         return role;
     }
@@ -200,28 +182,18 @@ const UserManagement: React.FC = () => {
     <div className="py-6">
       <Card>
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-xl font-semibold">Gestion des Utilisateurs</h1>
+          <h1 className="text-xl font-semibold">User Management</h1>
           
-          <div className="flex space-x-2">
+          {!showForm && (
             <Button
-              variant="secondary"
+              variant="primary"
               size="sm"
-              onClick={debugUsers}
+              icon={<Plus size={16} />}
+              onClick={() => setShowForm(true)}
             >
-              Debug
+              Add User
             </Button>
-            
-            {!showForm && (
-              <Button
-                variant="primary"
-                size="sm"
-                icon={<Plus size={16} />}
-                onClick={() => setShowForm(true)}
-              >
-                Ajouter
-              </Button>
-            )}
-          </div>
+          )}
         </div>
 
         {successMessage && (
@@ -240,12 +212,12 @@ const UserManagement: React.FC = () => {
         {showForm && (
           <div className="mb-6 p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800/50">
             <h2 className="text-lg font-medium mb-4">
-              Nouvel Utilisateur
+              New User
             </h2>
             
             <form onSubmit={handleAddUser} className="space-y-4">
               <div>
-                <label htmlFor="name" className="form-label">Nom complet</label>
+                <label htmlFor="name" className="form-label">Full Name</label>
                 <input
                   type="text"
                   id="name"
@@ -269,7 +241,7 @@ const UserManagement: React.FC = () => {
               </div>
               
               <div>
-                <label htmlFor="password" className="form-label">Mot de passe</label>
+                <label htmlFor="password" className="form-label">Password</label>
                 <input
                   type="password"
                   id="password"
@@ -282,7 +254,7 @@ const UserManagement: React.FC = () => {
               </div>
               
               <div>
-                <label htmlFor="role" className="form-label">Rôle</label>
+                <label htmlFor="role" className="form-label">Role</label>
                 <select
                   id="role"
                   className="form-select"
@@ -292,7 +264,7 @@ const UserManagement: React.FC = () => {
                 >
                   <option value="admin">Admin</option>
                   <option value="auto-entrepreneur">Auto-Entrepreneur</option>
-                  <option value="employee">Employé</option>
+                  <option value="employee">Employee</option>
                 </select>
               </div>
               
@@ -302,7 +274,7 @@ const UserManagement: React.FC = () => {
                   disabled={isSubmitting}
                   icon={isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <User size={16} />}
                 >
-                  {isSubmitting ? 'Création...' : 'Créer Utilisateur'}
+                  {isSubmitting ? 'Creating...' : 'Create User'}
                 </Button>
                 
                 <Button
@@ -311,7 +283,7 @@ const UserManagement: React.FC = () => {
                   onClick={() => setShowForm(false)}
                   disabled={isSubmitting}
                 >
-                  Annuler
+                  Cancel
                 </Button>
               </div>
             </form>
@@ -322,7 +294,7 @@ const UserManagement: React.FC = () => {
           <div className="relative">
             <input
               type="text"
-              placeholder="Rechercher un utilisateur..."
+              placeholder="Search users..."
               className="form-input pl-9"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -335,7 +307,7 @@ const UserManagement: React.FC = () => {
           <div className="h-40 flex items-center justify-center">
             <div className="flex items-center space-x-2">
               <Loader2 size={24} className="animate-spin text-primary-500" />
-              <span>Chargement des utilisateurs...</span>
+              <span>Loading users...</span>
             </div>
           </div>
         ) : filteredUsers.length > 0 ? (
@@ -358,8 +330,8 @@ const UserManagement: React.FC = () => {
                       variant="ghost"
                       size="sm"
                       icon={<Edit size={16} />}
-                      onClick={() => alert('Fonctionnalité à implémenter')}
-                      aria-label="Modifier"
+                      onClick={() => alert('Feature to be implemented')}
+                      aria-label="Edit"
                     />
                     
                     <Button
@@ -367,7 +339,7 @@ const UserManagement: React.FC = () => {
                       size="sm"
                       icon={<Trash size={16} className="text-error-500" />}
                       onClick={() => handleDeleteUser(user.id)}
-                      aria-label="Supprimer"
+                      aria-label="Delete"
                     />
                   </div>
                 </div>
@@ -377,7 +349,7 @@ const UserManagement: React.FC = () => {
         ) : (
           <div className="text-center py-8 text-gray-500 dark:text-gray-400">
             <Users size={40} className="mx-auto mb-2 opacity-20" />
-            <p>Aucun utilisateur trouvé.</p>
+            <p>No users found.</p>
           </div>
         )}
       </Card>
