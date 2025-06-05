@@ -38,10 +38,13 @@ const UserManagement: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
+      console.log('Fetching users...');
       const { data: users, error: usersError } = await supabase
         .from('users')
         .select('*')
         .order('created_at', { ascending: false });
+
+      console.log('Users response:', { users, usersError });
 
       if (usersError) {
         throw usersError;
@@ -51,10 +54,13 @@ const UserManagement: React.FC = () => {
         throw new Error('No users data received');
       }
 
-      setUsers(users.map(user => ({
+      const mappedUsers = users.map(user => ({
         ...user,
         createdAt: new Date(user.created_at)
-      })));
+      }));
+
+      console.log('Mapped users:', mappedUsers);
+      setUsers(mappedUsers);
     } catch (error: any) {
       console.error('Failed to load users:', error);
       setError('Erreur lors du chargement des utilisateurs: ' + error.message);
@@ -372,9 +378,6 @@ const UserManagement: React.FC = () => {
           <div className="text-center py-8 text-gray-500 dark:text-gray-400">
             <Users size={40} className="mx-auto mb-2 opacity-20" />
             <p>Aucun utilisateur trouvé.</p>
-            <p className="text-sm mt-2">
-              Utilisez le bouton "Debug" pour diagnostiquer le problème.
-            </p>
           </div>
         )}
       </Card>
