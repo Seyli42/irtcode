@@ -33,11 +33,16 @@ export const InterventionProvider: React.FC<{ children: React.ReactNode }> = ({ 
         let query = supabase
           .from('interventions')
           .select(`
-            *,
-            users (
-              name,
-              role
-            )
+            id,
+            user_id,
+            date,
+            time,
+            nd_number,
+            provider,
+            service_type,
+            price,
+            status,
+            created_at
           `)
           .order('created_at', { ascending: false });
 
