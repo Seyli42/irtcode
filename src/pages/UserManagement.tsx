@@ -67,7 +67,6 @@ const UserManagement: React.FC = () => {
     setSuccessMessage(null);
     
     try {
-      // Create auth user
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
@@ -82,7 +81,6 @@ const UserManagement: React.FC = () => {
       if (signUpError) throw signUpError;
       if (!authData.user) throw new Error('Erreur lors de la création du compte');
 
-      // Insert into users table avec retry
       let insertSuccess = false;
       let retryCount = 0;
       const maxRetries = 3;
@@ -107,7 +105,7 @@ const UserManagement: React.FC = () => {
             console.error('Insert error after retries:', insertError);
             throw new Error('Erreur lors de l\'insertion dans la table users');
           } else {
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s before retry
+            await new Promise(resolve => setTimeout(resolve, 1000));
           }
         }
       }
