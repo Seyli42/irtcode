@@ -1,0 +1,6 @@
+<svg width="200" height="100" viewBox="0 0 200 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <text x="10" y="60" font-family="Arial" font-size="48" font-weight="bold" fill="#000000">IRT</text>
+  <path d="M160 30C180 30 190 50 170 70" stroke="#0066CC" stroke-width="4"/>
+  <path d="M150 20C175 20 190 45 165 70" stroke="#0066CC" stroke-width="4"/>
+  <path d="M140 10C170 10 190 40 160 70" stroke="#0066CC" stroke-width="4"/>
+</svg>
