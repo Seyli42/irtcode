@@ -38,20 +38,68 @@ const UserManagement: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const { data, error } = await supabase
+      // Méthode 1: Récupérer depuis votre table users
+      const { data: customUsers, error: customError } = await supabase
         .from('users')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (customError) {
+        console.warn('Erreur table users:', customError);
+      }
+
+      // Méthode 2: Récupérer depuis auth.users (fallback)
+      const { data: authUsers, error: authError } = await supabase.auth.admin.listUsers();
       
-      setUsers(data.map(user => ({
-        ...user,
-        createdAt: new Date(user.created_at)
-      })));
+      if (authError) {
+        console.warn('Erreur auth users:', authError);
+      }
+
+      // Consolider les données
+      let consolidatedUsers: UserType[] = [];
+
+      if (customUsers && customUsers.length > 0) {
+        // Utiliser les données de votre table custom
+        consolidatedUsers = customUsers.map(user => ({
+          ...user,
+          createdAt: new Date(user.created_at)
+        }));
+      } else if (authUsers && authUsers.users.length > 0) {
+        // Fallback sur auth.users si votre table est vide
+        consolidatedUsers = authUsers.users.map(user => ({
+          id: user.id,
+          email: user.email || '',
+          name: user.user_metadata?.name || user.email?.split('@')[0] || 'Utilisateur',
+          role: (user.user_metadata?.role as UserRole) || 'employee',
+          createdAt: new Date(user.created_at)
+        }));
+
+        // Synchroniser avec votre table (optionnel)
+        if (consolidatedUsers.length > 0) {
+          const { error: syncError } = await supabase
+            .from('users')
+            .upsert(consolidatedUsers.map(user => ({
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              role: user.role,
+              created_at: user.createdAt.toISOString()
+            })), { onConflict: 'id' });
+          
+          if (syncError) {
+            console.warn('Erreur synchronisation:', syncError);
+          }
+        }
+      }
+      
+      setUsers(consolidatedUsers);
+      
+      // Debug: Afficher ce qu'on a récupéré
+      console.log('Utilisateurs chargés:', consolidatedUsers);
+      
     } catch (error: any) {
       console.error('Failed to load users:', error);
-      setError('Erreur lors du chargement des utilisateurs');
+      setError('Erreur lors du chargement des utilisateurs: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -79,20 +127,35 @@ const UserManagement: React.FC = () => {
       if (signUpError) throw signUpError;
       if (!authData.user) throw new Error('Erreur lors de la création du compte');
 
-      // Insert into users table
-      const { error: insertError } = await supabase
-        .from('users')
-        .insert([{
-          id: authData.user.id,
-          email: formData.email,
-          name: formData.name,
-          role: formData.role
-        }]);
+      // Insert into users table avec retry
+      let insertSuccess = false;
+      let retryCount = 0;
+      const maxRetries = 3;
 
-      if (insertError) {
-        // If insert fails, we should clean up the auth user
-        await supabase.auth.admin.deleteUser(authData.user.id);
-        throw insertError;
+      while (!insertSuccess && retryCount < maxRetries) {
+        try {
+          const { error: insertError } = await supabase
+            .from('users')
+            .insert([{
+              id: authData.user.id,
+              email: formData.email,
+              name: formData.name,
+              role: formData.role,
+              created_at: new Date().toISOString()
+            }]);
+
+          if (insertError) throw insertError;
+          insertSuccess = true;
+        } catch (insertError: any) {
+          retryCount++;
+          if (retryCount === maxRetries) {
+            console.warn('Insertion dans table users échouée, mais auth user créé');
+            // Ne pas supprimer l'auth user, juste log l'erreur
+            console.error('Insert error after retries:', insertError);
+          } else {
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s before retry
+          }
+        }
       }
 
       // Success! Reset form and show success message
@@ -126,12 +189,22 @@ const UserManagement: React.FC = () => {
     
     setError(null);
     try {
+      // Supprimer de votre table
       const { error: deleteError } = await supabase
         .from('users')
         .delete()
         .eq('id', userId);
       
-      if (deleteError) throw deleteError;
+      if (deleteError) {
+        console.warn('Erreur suppression table users:', deleteError);
+      }
+
+      // Supprimer de auth (nécessite des privilèges admin)
+      const { error: authDeleteError } = await supabase.auth.admin.deleteUser(userId);
+      
+      if (authDeleteError) {
+        console.warn('Erreur suppression auth:', authDeleteError);
+      }
 
       await loadUsers();
       setSuccessMessage('Utilisateur supprimé avec succès');
@@ -143,6 +216,29 @@ const UserManagement: React.FC = () => {
       console.error('Failed to delete user:', error);
       setError(error.message || 'Erreur lors de la suppression de l\'utilisateur');
     }
+  };
+
+  // Fonction de debug à ajouter temporairement
+  const debugUsers = async () => {
+    console.log('=== DEBUG USERS ===');
+    
+    // Check table users
+    const { data: tableUsers, error: tableError } = await supabase
+      .from('users')
+      .select('*');
+    console.log('Table users:', tableUsers, 'Error:', tableError);
+    
+    // Check auth users (si vous avez les permissions)
+    try {
+      const { data: authUsers, error: authError } = await supabase.auth.admin.listUsers();
+      console.log('Auth users:', authUsers, 'Error:', authError);
+    } catch (e) {
+      console.log('Pas de permission pour auth.admin.listUsers');
+    }
+    
+    // Check current user
+    const { data: currentUser } = await supabase.auth.getUser();
+    console.log('Current user:', currentUser);
   };
   
   if (!isAllowed(['admin'])) {
@@ -186,16 +282,27 @@ const UserManagement: React.FC = () => {
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-xl font-semibold">Gestion des Utilisateurs</h1>
           
-          {!showForm && (
+          <div className="flex space-x-2">
+            {/* Bouton debug temporaire */}
             <Button
-              variant="primary"
+              variant="secondary"
               size="sm"
-              icon={<Plus size={16} />}
-              onClick={() => setShowForm(true)}
+              onClick={debugUsers}
             >
-              Ajouter
+              Debug
             </Button>
-          )}
+            
+            {!showForm && (
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Plus size={16} />}
+                onClick={() => setShowForm(true)}
+              >
+                Ajouter
+              </Button>
+            )}
+          </div>
         </div>
 
         {successMessage && (
@@ -352,6 +459,9 @@ const UserManagement: React.FC = () => {
           <div className="text-center py-8 text-gray-500 dark:text-gray-400">
             <Users size={40} className="mx-auto mb-2 opacity-20" />
             <p>Aucun utilisateur trouvé.</p>
+            <p className="text-sm mt-2">
+              Utilisez le bouton "Debug" pour diagnostiquer le problème.
+            </p>
           </div>
         )}
       </Card>
