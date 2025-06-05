@@ -46,60 +46,106 @@ export function downloadCSV(content: string, filename: string) {
 export function generatePDF(interventions: Intervention[], selectedUser?: User | null) {
   const doc = new jsPDF();
   
-  // Ajouter le logo
+  // Create a canvas to convert SVG to PNG
+  const convertSvgToPng = (svgElement: HTMLImageElement): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) {
+        reject(new Error('Could not get canvas context'));
+        return;
+      }
+      
+      // Set canvas dimensions to match the SVG
+      canvas.width = svgElement.width || 30;
+      canvas.height = svgElement.height || 30;
+      
+      // Draw SVG onto canvas
+      ctx.drawImage(svgElement, 0, 0, canvas.width, canvas.height);
+      
+      // Convert to PNG data URL
+      resolve(canvas.toDataURL('image/png'));
+    });
+  };
+  
+  // Add the logo asynchronously
   const logoImg = document.querySelector('img[alt="IRT Logo"]') as HTMLImageElement;
   if (logoImg) {
-    doc.addImage(logoImg.src, 'PNG', 14, 10, 30, 30);
+    // Wait for the image to load
+    logoImg.onload = async () => {
+      try {
+        const pngDataUrl = await convertSvgToPng(logoImg);
+        doc.addImage(pngDataUrl, 'PNG', 14, 10, 30, 30);
+        
+        // Continue with the rest of the PDF generation
+        completePdfGeneration();
+      } catch (error) {
+        console.error('Error converting logo:', error);
+        // Continue without the logo if conversion fails
+        completePdfGeneration();
+      }
+    };
+    
+    // If the image is already loaded
+    if (logoImg.complete) {
+      logoImg.onload?.(new Event('load'));
+    }
+  } else {
+    // Continue without the logo if it's not found
+    completePdfGeneration();
   }
   
-  // Ajouter le titre
-  doc.setFontSize(20);
-  doc.text('Rapport des Interventions', 50, 30);
-  
-  // Ajouter les informations de période
-  doc.setFontSize(12);
-  doc.text(`Généré le ${format(new Date(), 'dd/MM/yyyy HH:mm', { locale: fr })}`, 14, 45);
-  
-  if (selectedUser) {
-    doc.text(`Utilisateur : ${selectedUser.name}`, 14, 55);
+  function completePdfGeneration() {
+    // Add the title
+    doc.setFontSize(20);
+    doc.text('Rapport des Interventions', 50, 30);
+    
+    // Add period information
+    doc.setFontSize(12);
+    doc.text(`Généré le ${format(new Date(), 'dd/MM/yyyy HH:mm', { locale: fr })}`, 14, 45);
+    
+    if (selectedUser) {
+      doc.text(`Utilisateur : ${selectedUser.name}`, 14, 55);
+    }
+    
+    // Prepare table data
+    const headers = [
+      ['Date', 'ND', 'Opérateur', 'Service', 'Prix', 'Statut', selectedUser ? '' : 'Utilisateur'].filter(Boolean)
+    ];
+    
+    const data = interventions.map(intervention => [
+      format(new Date(intervention.date), 'dd/MM/yyyy', { locale: fr }),
+      intervention.ndNumber,
+      PROVIDERS.find(p => p.id === intervention.provider)?.label || intervention.provider,
+      SERVICE_TYPES.find(s => s.id === intervention.serviceType)?.label || intervention.serviceType,
+      `${intervention.price}€`,
+      intervention.status === 'success' ? 'Succès' : 'Échec',
+      selectedUser ? '' : intervention.userName
+    ].filter(Boolean));
+    
+    // Add the table
+    (doc as any).autoTable({
+      head: headers,
+      body: data,
+      startY: selectedUser ? 60 : 50,
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [79, 70, 229] },
+    });
+    
+    // Add summary
+    const totalAmount = interventions.reduce((sum, item) => sum + item.price, 0);
+    const successCount = interventions.filter(i => i.status === 'success').length;
+    const totalCount = interventions.length;
+    const successRate = totalCount > 0 ? (successCount / totalCount * 100).toFixed(1) : '0';
+    
+    const finalY = (doc as any).lastAutoTable.finalY || 150;
+    
+    doc.text('Résumé :', 14, finalY + 10);
+    doc.text(`Montant total : ${totalAmount}€`, 14, finalY + 20);
+    doc.text(`Taux de succès : ${successRate}%`, 14, finalY + 30);
+    doc.text(`Nombre d'interventions : ${totalCount}`, 14, finalY + 40);
   }
-  
-  // Préparer les données du tableau
-  const headers = [
-    ['Date', 'ND', 'Opérateur', 'Service', 'Prix', 'Statut', selectedUser ? '' : 'Utilisateur'].filter(Boolean)
-  ];
-  
-  const data = interventions.map(intervention => [
-    format(new Date(intervention.date), 'dd/MM/yyyy', { locale: fr }),
-    intervention.ndNumber,
-    PROVIDERS.find(p => p.id === intervention.provider)?.label || intervention.provider,
-    SERVICE_TYPES.find(s => s.id === intervention.serviceType)?.label || intervention.serviceType,
-    `${intervention.price}€`,
-    intervention.status === 'success' ? 'Succès' : 'Échec',
-    selectedUser ? '' : intervention.userName
-  ].filter(Boolean));
-  
-  // Ajouter le tableau
-  (doc as any).autoTable({
-    head: headers,
-    body: data,
-    startY: selectedUser ? 60 : 50,
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [79, 70, 229] },
-  });
-  
-  // Ajouter le résumé
-  const totalAmount = interventions.reduce((sum, item) => sum + item.price, 0);
-  const successCount = interventions.filter(i => i.status === 'success').length;
-  const totalCount = interventions.length;
-  const successRate = totalCount > 0 ? (successCount / totalCount * 100).toFixed(1) : '0';
-  
-  const finalY = (doc as any).lastAutoTable.finalY || 150;
-  
-  doc.text('Résumé :', 14, finalY + 10);
-  doc.text(`Montant total : ${totalAmount}€`, 14, finalY + 20);
-  doc.text(`Taux de succès : ${successRate}%`, 14, finalY + 30);
-  doc.text(`Nombre d'interventions : ${totalCount}`, 14, finalY + 40);
   
   return doc;
 }
