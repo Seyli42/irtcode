@@ -46,19 +46,25 @@ export function downloadCSV(content: string, filename: string) {
 export function generatePDF(interventions: Intervention[], selectedUser?: User | null) {
   const doc = new jsPDF();
   
-  // Add title
-  doc.setFontSize(20);
-  doc.text('Rapport des Interventions', 14, 20);
-  
-  // Add period info
-  doc.setFontSize(12);
-  doc.text(`Généré le ${format(new Date(), 'dd/MM/yyyy HH:mm', { locale: fr })}`, 14, 30);
-  
-  if (selectedUser) {
-    doc.text(`Utilisateur: ${selectedUser.name}`, 14, 40);
+  // Ajouter le logo
+  const logoImg = document.querySelector('img[alt="IRT Logo"]') as HTMLImageElement;
+  if (logoImg) {
+    doc.addImage(logoImg.src, 'PNG', 14, 10, 30, 30);
   }
   
-  // Prepare table data
+  // Ajouter le titre
+  doc.setFontSize(20);
+  doc.text('Rapport des Interventions', 50, 30);
+  
+  // Ajouter les informations de période
+  doc.setFontSize(12);
+  doc.text(`Généré le ${format(new Date(), 'dd/MM/yyyy HH:mm', { locale: fr })}`, 14, 45);
+  
+  if (selectedUser) {
+    doc.text(`Utilisateur : ${selectedUser.name}`, 14, 55);
+  }
+  
+  // Préparer les données du tableau
   const headers = [
     ['Date', 'ND', 'Opérateur', 'Service', 'Prix', 'Statut', selectedUser ? '' : 'Utilisateur'].filter(Boolean)
   ];
@@ -73,16 +79,16 @@ export function generatePDF(interventions: Intervention[], selectedUser?: User |
     selectedUser ? '' : intervention.userName
   ].filter(Boolean));
   
-  // Add table
+  // Ajouter le tableau
   (doc as any).autoTable({
     head: headers,
     body: data,
-    startY: selectedUser ? 45 : 35,
+    startY: selectedUser ? 60 : 50,
     styles: { fontSize: 8 },
     headStyles: { fillColor: [79, 70, 229] },
   });
   
-  // Add summary
+  // Ajouter le résumé
   const totalAmount = interventions.reduce((sum, item) => sum + item.price, 0);
   const successCount = interventions.filter(i => i.status === 'success').length;
   const totalCount = interventions.length;
@@ -90,10 +96,10 @@ export function generatePDF(interventions: Intervention[], selectedUser?: User |
   
   const finalY = (doc as any).lastAutoTable.finalY || 150;
   
-  doc.text('Résumé:', 14, finalY + 10);
-  doc.text(`Montant total: ${totalAmount}€`, 14, finalY + 20);
-  doc.text(`Taux de succès: ${successRate}%`, 14, finalY + 30);
-  doc.text(`Nombre d'interventions: ${totalCount}`, 14, finalY + 40);
+  doc.text('Résumé :', 14, finalY + 10);
+  doc.text(`Montant total : ${totalAmount}€`, 14, finalY + 20);
+  doc.text(`Taux de succès : ${successRate}%`, 14, finalY + 30);
+  doc.text(`Nombre d'interventions : ${totalCount}`, 14, finalY + 40);
   
   return doc;
 }
