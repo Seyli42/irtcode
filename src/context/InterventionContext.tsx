@@ -13,7 +13,7 @@ const MOCK_USERS = [
 interface InterventionContextType {
   interventions: Intervention[];
   addIntervention: (intervention: Omit<Intervention, 'id' | 'userId' | 'createdAt'>) => void;
-  getUserInterventions: () => Intervention[];
+  getUserInterventions: (userId?: string) => Intervention[];
   calculatePrice: (provider: ServiceProvider, serviceType: ServiceType, userRole?: UserRole) => number;
   loading: boolean;
 }
@@ -55,16 +55,16 @@ export const InterventionProvider: React.FC<{ children: React.ReactNode }> = ({ 
     setInterventions([...interventions, newIntervention]);
   };
 
-  const getUserInterventions = () => {
+  const getUserInterventions = (userId?: string) => {
     if (!user) return [];
     
     const roleAccess = ROLE_ACCESS[user.role];
     
     if (roleAccess.viewAllData) {
-      return interventions;
+      return userId ? interventions.filter(i => i.userId === userId) : interventions;
     }
     
-    return interventions.filter(intervention => intervention.userId === user.id);
+    return interventions.filter(i => i.userId === user.id);
   };
 
   const calculatePrice = (provider: ServiceProvider, serviceType: ServiceType, userRole: UserRole = user?.role || 'employee') => {

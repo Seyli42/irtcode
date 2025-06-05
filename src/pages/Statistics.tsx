@@ -26,9 +26,8 @@ const Statistics: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
-  const [filteredInterventions, setFilteredInterventions] = useState(getUserInterventions());
   
-  const interventions = getUserInterventions();
+  const interventions = getUserInterventions(selectedUser?.id);
   const isAdmin = user?.role === 'admin';
   const canExport = user && ROLE_ACCESS[user.role].viewInvoices;
   
@@ -59,44 +58,40 @@ const Statistics: React.FC = () => {
     }
   }, [isAdmin]);
   
-  useEffect(() => {
-    const getFilteredInterventions = () => {
-      let filtered = selectedUser
-        ? interventions.filter(i => i.userId === selectedUser.id)
-        : interventions;
-      
-      if (showDateRange) {
-        return filtered.filter(i => {
-          const interventionDate = new Date(i.date);
-          return isWithinInterval(interventionDate, {
-            start: new Date(startDate),
-            end: new Date(endDate)
-          });
+  const getFilteredInterventions = () => {
+    let filtered = interventions;
+    
+    if (showDateRange) {
+      return filtered.filter(i => {
+        const interventionDate = new Date(i.date);
+        return isWithinInterval(interventionDate, {
+          start: new Date(startDate),
+          end: new Date(endDate)
         });
-      }
-      
-      const now = new Date();
-      let cutoffDate = new Date();
-      
-      if (period === 'day') {
-        cutoffDate.setDate(now.getDate() - 1);
-      } else if (period === 'week') {
-        cutoffDate.setDate(now.getDate() - 7);
-      } else if (period === 'month') {
-        return filtered.filter(i => {
-          const interventionDate = new Date(i.date);
-          return isWithinInterval(interventionDate, {
-            start: startOfMonth(now),
-            end: endOfMonth(now)
-          });
+      });
+    }
+    
+    const now = new Date();
+    let cutoffDate = new Date();
+    
+    if (period === 'day') {
+      cutoffDate.setDate(now.getDate() - 1);
+    } else if (period === 'week') {
+      cutoffDate.setDate(now.getDate() - 7);
+    } else if (period === 'month') {
+      return filtered.filter(i => {
+        const interventionDate = new Date(i.date);
+        return isWithinInterval(interventionDate, {
+          start: startOfMonth(now),
+          end: endOfMonth(now)
         });
-      }
-      
-      return filtered.filter(i => i.date >= cutoffDate);
-    };
-
-    setFilteredInterventions(getFilteredInterventions());
-  }, [interventions, selectedUser, period, startDate, endDate, showDateRange]);
+      });
+    }
+    
+    return filtered.filter(i => new Date(i.date) >= cutoffDate);
+  };
+  
+  const filteredInterventions = getFilteredInterventions();
   
   const handleExportCSV = () => {
     const csv = generateCSV(filteredInterventions, selectedUser);
