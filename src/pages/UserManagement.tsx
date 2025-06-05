@@ -70,7 +70,7 @@ const UserManagement: React.FC = () => {
     setSuccessMessage(null);
     
     try {
-      // Create the auth user first
+      // First create the auth user
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
@@ -85,10 +85,11 @@ const UserManagement: React.FC = () => {
       if (signUpError) throw signUpError;
       if (!authData.user) throw new Error('Failed to create auth user');
 
-      // Then insert into users table
+      // Then insert into users table using the auth user's ID
       const { error: insertError } = await supabase
         .from('users')
         .insert({
+          id: authData.user.id, // Use the auth user's ID
           email: formData.email,
           name: formData.name,
           role: formData.role
