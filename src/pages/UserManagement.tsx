@@ -47,11 +47,14 @@ const UserManagement: React.FC = () => {
         throw usersError;
       }
 
+      if (!users) {
+        throw new Error('No users data received');
+      }
+
       setUsers(users.map(user => ({
         ...user,
         createdAt: new Date(user.created_at)
       })));
-      
     } catch (error: any) {
       console.error('Failed to load users:', error);
       setError('Erreur lors du chargement des utilisateurs: ' + error.message);
@@ -81,34 +84,17 @@ const UserManagement: React.FC = () => {
       if (signUpError) throw signUpError;
       if (!authData.user) throw new Error('Erreur lors de la création du compte');
 
-      let insertSuccess = false;
-      let retryCount = 0;
-      const maxRetries = 3;
+      const { error: insertError } = await supabase
+        .from('users')
+        .insert([{
+          id: authData.user.id,
+          email: formData.email,
+          name: formData.name,
+          role: formData.role,
+          created_at: new Date().toISOString()
+        }]);
 
-      while (!insertSuccess && retryCount < maxRetries) {
-        try {
-          const { error: insertError } = await supabase
-            .from('users')
-            .insert([{
-              id: authData.user.id,
-              email: formData.email,
-              name: formData.name,
-              role: formData.role,
-              created_at: new Date().toISOString()
-            }]);
-
-          if (insertError) throw insertError;
-          insertSuccess = true;
-        } catch (insertError: any) {
-          retryCount++;
-          if (retryCount === maxRetries) {
-            console.error('Insert error after retries:', insertError);
-            throw new Error('Erreur lors de l\'insertion dans la table users');
-          } else {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
-        }
-      }
+      if (insertError) throw insertError;
 
       setShowForm(false);
       setFormData({
