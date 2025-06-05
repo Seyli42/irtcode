@@ -69,8 +69,15 @@ export const InterventionProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const { error } = await supabase
         .from('interventions')
         .insert({
-          ...newIntervention,
-          date: newIntervention.date.toISOString(),
+          id: newIntervention.id,
+          user_id: newIntervention.userId,
+          date: newIntervention.date.toISOString().split('T')[0], // Format as YYYY-MM-DD
+          time: newIntervention.time,
+          nd_number: newIntervention.ndNumber,
+          provider: newIntervention.provider,
+          service_type: newIntervention.serviceType,
+          price: newIntervention.price,
+          status: newIntervention.status,
           created_at: newIntervention.createdAt.toISOString()
         });
 
