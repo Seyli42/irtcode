@@ -76,6 +76,19 @@ const UserManagement: React.FC = () => {
     setSuccessMessage(null);
     
     try {
+      // First create the user in the users table
+      const { error: insertError } = await supabase
+        .from('users')
+        .insert([{
+          email: formData.email,
+          name: formData.name,
+          role: formData.role,
+          created_at: new Date().toISOString()
+        }]);
+
+      if (insertError) throw insertError;
+
+      // Then create the auth user
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
@@ -88,19 +101,6 @@ const UserManagement: React.FC = () => {
       });
 
       if (signUpError) throw signUpError;
-      if (!authData.user) throw new Error('Erreur lors de la création du compte');
-
-      const { error: insertError } = await supabase
-        .from('users')
-        .insert([{
-          id: authData.user.id,
-          email: formData.email,
-          name: formData.name,
-          role: formData.role,
-          created_at: new Date().toISOString()
-        }]);
-
-      if (insertError) throw insertError;
 
       setShowForm(false);
       setFormData({
