@@ -2,11 +2,12 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Intervention, ServiceProvider, ServiceType, User, ROLE_ACCESS, UserRole } from '../types';
 import { getServicePrice } from '../constants/pricing';
 import { useAuth } from './AuthContext';
+import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '../lib/supabase';
 
 interface InterventionContextType {
   interventions: Intervention[];
-  addIntervention: (intervention: Omit<Intervention, 'id' | 'userId' | 'createdAt'>) => Promise<void>;
+  addIntervention: (intervention: Omit<Intervention, 'id' | 'userId' | 'createdAt'>) => void;
   getUserInterventions: (userId?: string) => Intervention[];
   calculatePrice: (provider: ServiceProvider, serviceType: ServiceType, userRole?: UserRole) => number;
   loading: boolean;
@@ -20,124 +21,71 @@ export const InterventionProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const { user } = useAuth();
 
   useEffect(() => {
-    let mounted = true;
-
     const loadInterventions = async () => {
       if (!user) {
-        if (mounted) {
-          setInterventions([]);
-          setLoading(false);
-        }
+        setInterventions([]);
+        setLoading(false);
         return;
       }
 
-      if (mounted) {
-        setLoading(true);
-      }
-
+      setLoading(true);
       try {
-        let query = supabase
+        const { data: interventionsData, error } = await supabase
           .from('interventions')
           .select('*')
           .order('created_at', { ascending: false });
 
-        const { data: interventionsData, error } = await query;
-
-        if (error) {
-          console.error('Error loading interventions:', error);
-          if (mounted) {
-            setInterventions([]);
-          }
-          return;
-        }
-
-        if (!interventionsData) {
-          if (mounted) {
-            setInterventions([]);
-          }
-          return;
-        }
+        if (error) throw error;
 
         const loadedInterventions = interventionsData.map(intervention => ({
-          id: intervention.id,
-          userId: intervention.user_id,
+          ...intervention,
           date: new Date(intervention.date),
-          time: intervention.time,
-          ndNumber: intervention.nd_number,
-          provider: intervention.provider as ServiceProvider,
-          serviceType: intervention.service_type as ServiceType,
-          price: Number(intervention.price),
-          status: intervention.status as 'success' | 'failure',
           createdAt: new Date(intervention.created_at)
         }));
 
-        if (mounted) {
-          setInterventions(loadedInterventions);
-        }
+        setInterventions(loadedInterventions);
       } catch (error) {
-        console.error('Error loading interventions:', error);
-        if (mounted) {
-          setInterventions([]);
-        }
+        console.error('Erreur chargement interventions:', error);
+        setInterventions([]);
       } finally {
-        if (mounted) {
-          setLoading(false);
-        }
+        setLoading(false);
       }
     };
 
     loadInterventions();
-
-    return () => {
-      mounted = false;
-    };
   }, [user]);
 
   const addIntervention = async (intervention: Omit<Intervention, 'id' | 'userId' | 'createdAt'>) => {
-    if (!user) {
-      throw new Error('User not authenticated');
-    }
+    if (!user) return;
+
+    const newIntervention: Intervention = {
+      ...intervention,
+      id: uuidv4(),
+      userId: user.id,
+      createdAt: new Date(),
+    };
 
     try {
-      const newIntervention = {
-        user_id: user.id,
-        date: intervention.date.toISOString().split('T')[0],
-        time: intervention.time,
-        nd_number: intervention.ndNumber,
-        provider: intervention.provider,
-        service_type: intervention.serviceType,
-        price: intervention.price,
-        status: intervention.status
-      };
-
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('interventions')
-        .insert(newIntervention)
-        .select()
-        .single();
+        .insert({
+          id: newIntervention.id,
+          user_id: newIntervention.userId,
+          date: newIntervention.date.toISOString().split('T')[0], // Format as YYYY-MM-DD
+          time: newIntervention.time,
+          nd_number: newIntervention.ndNumber,
+          provider: newIntervention.provider,
+          service_type: newIntervention.serviceType,
+          price: newIntervention.price,
+          status: newIntervention.status,
+          created_at: newIntervention.createdAt.toISOString()
+        });
 
-      if (error) {
-        console.error('Error adding intervention:', error);
-        throw new Error('Erreur lors de l\'ajout de l\'intervention');
-      }
+      if (error) throw error;
 
-      const createdIntervention: Intervention = {
-        id: data.id,
-        userId: data.user_id,
-        date: new Date(data.date),
-        time: data.time,
-        ndNumber: data.nd_number,
-        provider: data.provider as ServiceProvider,
-        serviceType: data.service_type as ServiceType,
-        price: Number(data.price),
-        status: data.status as 'success' | 'failure',
-        createdAt: new Date(data.created_at)
-      };
-
-      setInterventions(prev => [createdIntervention, ...prev]);
+      setInterventions(prev => [newIntervention, ...prev]);
     } catch (error) {
-      console.error('Error adding intervention:', error);
-      throw error;
+      console.error('Erreur ajout intervention:', error);
     }
   };
 

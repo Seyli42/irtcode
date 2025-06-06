@@ -17,105 +17,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchUserProfile = async (supabaseUser: SupabaseUser): Promise<User | null> => {
-    try {
-      const { data: userProfile, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', supabaseUser.id)
-        .single();
-
-      if (error) {
-        console.error('Error fetching user profile:', error);
-        return null;
-      }
-
-      if (!userProfile) {
-        console.error('User profile not found in database');
-        return null;
-      }
-
-      return {
-        id: userProfile.id,
-        email: userProfile.email,
-        name: userProfile.name,
-        role: userProfile.role as UserRole,
-        createdAt: new Date(userProfile.created_at),
-      };
-    } catch (error) {
-      console.error('Error in fetchUserProfile:', error);
-      return null;
-    }
+  const mapSupabaseUser = (supabaseUser: SupabaseUser): User => {
+    const metadata = supabaseUser.user_metadata;
+    return {
+      id: supabaseUser.id,
+      email: supabaseUser.email || '',
+      name: metadata?.name || supabaseUser.email?.split('@')[0] || '',
+      role: (metadata?.role || 'employee') as UserRole,
+      createdAt: new Date(supabaseUser.created_at),
+    };
   };
 
   useEffect(() => {
-    let mounted = true;
-
     const initializeAuth = async () => {
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
-        if (error) {
-          console.error('Error getting session:', error);
-          if (mounted) {
-            setUser(null);
-            setLoading(false);
-          }
-          return;
-        }
-
-        if (session?.user && mounted) {
-          const userProfile = await fetchUserProfile(session.user);
-          if (mounted) {
-            setUser(userProfile);
-          }
-        } else if (mounted) {
-          setUser(null);
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          setUser(mapSupabaseUser(session.user));
         }
       } catch (error) {
         console.error('Error initializing auth:', error);
-        if (mounted) {
-          setUser(null);
-        }
+        setUser(null);
       } finally {
-        if (mounted) {
-          setLoading(false);
-        }
+        setLoading(false);
       }
     };
 
     initializeAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!mounted) return;
-
-      try {
-        if (session?.user) {
-          const userProfile = await fetchUserProfile(session.user);
-          if (mounted) {
-            setUser(userProfile);
-          }
-        } else {
-          if (mounted) {
-            setUser(null);
-          }
-        }
-      } catch (error) {
-        console.error('Error in auth state change:', error);
-        if (mounted) {
-          setUser(null);
-        }
-      } finally {
-        if (mounted) {
-          setLoading(false);
-        }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        setUser(mapSupabaseUser(session.user));
+      } else {
+        setUser(null);
       }
+      setLoading(false);
     });
 
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -134,12 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error("Aucun utilisateur trouvé.");
       }
 
-      const userProfile = await fetchUserProfile(data.user);
-      if (!userProfile) {
-        throw new Error("Profil utilisateur non trouvé dans la base de données.");
-      }
-
-      setUser(userProfile);
+      setUser(mapSupabaseUser(data.user));
     } catch (error: any) {
       console.error("Login error:", error);
       throw error;
@@ -150,6 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { error } = await supabase.auth.signOut();
       if (error) {
+        // Check if the error is related to missing session
         const isSessionError = 
           error.message.includes('Auth session missing') || 
           error.message.includes('Session from session_id claim in JWT does not exist');
@@ -162,7 +97,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (error) {
       console.error('Error during logout:', error);
+      // Don't rethrow the error as we want to ensure the user state is cleared
     } finally {
+      // Always clear the user state regardless of errors
       setUser(null);
     }
   };
