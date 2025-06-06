@@ -1,7 +1,7 @@
 // src/context/AuthContext.tsx
 
 import { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '../utils/supabaseClient';
 
 const AuthContext = createContext(null);
 
@@ -10,6 +10,8 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   const syncUserWithPublicTable = async (user) => {
+    console.log('🔄 Sync start for user:', user?.id);
+
     try {
       const { data, error } = await supabase
         .from('users')
@@ -17,23 +19,40 @@ export const AuthProvider = ({ children }) => {
         .eq('id', user.id)
         .single();
 
+      if (error && error.code !== 'PGRST116') {
+        console.error('❌ Error checking user:', error.message);
+      }
+
       if (!data) {
+        console.log('🆕 Inserting new user in public.users table...');
         const { error: insertError } = await supabase.from('users').insert({
           id: user.id,
           email: user.email,
         });
 
-        if (insertError) console.error('Insert error:', insertError.message);
+        if (insertError) {
+          console.error('❌ Insert error:', insertError.message);
+        } else {
+          console.log('✅ Inserted user successfully');
+        }
+      } else {
+        console.log('✅ User already exists in users table');
       }
     } catch (err) {
-      console.error('Sync error:', err.message);
+      console.error('❌ Exception in sync:', err.message);
     }
   };
 
   useEffect(() => {
     const getSessionAndSync = async () => {
+      console.log('🔍 Getting session...');
       const { data: { session }, error } = await supabase.auth.getSession();
-      if (error) console.error('Session error:', error.message);
+
+      if (error) {
+        console.error('❌ Session error:', error.message);
+      } else {
+        console.log('✅ Session retrieved:', session?.user?.id);
+      }
 
       setSession(session);
 
@@ -42,12 +61,14 @@ export const AuthProvider = ({ children }) => {
       }
 
       setLoading(false);
+      console.log('✅ Finished auth loading');
     };
 
     getSessionAndSync();
 
     const { data: listener } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
+        console.log('📡 Auth state changed:', _event);
         setSession(session);
 
         if (session?.user) {
