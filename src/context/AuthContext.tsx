@@ -1,7 +1,7 @@
 // src/context/AuthContext.tsx
 
 import { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from '../utils/supabaseClient';
+import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext(null);
 
