@@ -9,6 +9,8 @@ console.log('🔧 Environment Check:');
 console.log('- VITE_SUPABASE_URL:', supabaseUrl ? '✅ Present' : '❌ Missing');
 console.log('- VITE_SUPABASE_ANON_KEY:', supabaseAnonKey ? '✅ Present' : '❌ Missing');
 
+let supabase: any;
+
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error('❌ Missing Supabase environment variables');
   console.error('Required: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY');
@@ -28,12 +30,12 @@ if (!supabaseUrl || !supabaseAnonKey) {
     })
   };
   
-  export const supabase = mockClient as any;
+  supabase = mockClient;
 } else {
   console.log('✅ Creating Supabase client...');
   
   // Create the real Supabase client
-  export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
+  supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
     auth: {
       autoRefreshToken: true,
       persistSession: true,
@@ -56,3 +58,5 @@ if (!supabaseUrl || !supabaseAnonKey) {
   
   console.log('✅ Supabase client initialized');
 }
+
+export { supabase };
