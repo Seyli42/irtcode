@@ -25,39 +25,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log('🔄 Starting user sync for:', supabaseUser.email);
     
     try {
-      // Check if user exists in public.users table
-      const { data: existingUser, error: selectError } = await supabase
+      // Use upsert to handle both insert and update cases gracefully
+      const { error: upsertError } = await supabase
         .from('users')
-        .select('id')
-        .eq('id', supabaseUser.id)
-        .single();
+        .upsert({
+          id: supabaseUser.id,
+          email: supabaseUser.email || '',
+          name: supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User',
+          role: 'employee' // Default role
+        }, {
+          onConflict: 'id'
+        });
 
-      if (selectError && selectError.code !== 'PGRST116') {
-        console.error('❌ Error checking user existence:', selectError);
-        return; // Don't block auth flow
+      if (upsertError) {
+        console.error('❌ Failed to upsert user in public.users:', upsertError);
+        // Don't throw - allow auth flow to continue
+        return;
       }
-
-      if (!existingUser) {
-        console.log('👤 User not found in public.users, creating...');
-        
-        const { error: insertError } = await supabase
-          .from('users')
-          .insert({
-            id: supabaseUser.id,
-            email: supabaseUser.email || '',
-            name: supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User',
-            role: 'employee' // Default role
-          });
-
-        if (insertError) {
-          console.error('❌ Failed to create user in public.users:', insertError);
-          return; // Don't block auth flow
-        }
-        
-        console.log('✅ User created in public.users table');
-      } else {
-        console.log('✅ User already exists in public.users');
-      }
+      
+      console.log('✅ User synced in public.users table');
     } catch (error) {
       console.error('❌ Exception in syncUserWithPublicTable:', error);
       // Don't throw - allow auth flow to continue
@@ -71,21 +57,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Ensure user exists in public table first
       await syncUserWithPublicTable(supabaseUser);
       
-      const { data: userProfile, error } = await supabase
+      // Use select without .single() to avoid errors when no rows are returned
+      const { data: userProfiles, error } = await supabase
         .from('users')
         .select('*')
-        .eq('id', supabaseUser.id)
-        .single();
+        .eq('id', supabaseUser.id);
 
       if (error) {
         console.error('❌ Error fetching user profile:', error);
         return null;
       }
 
-      if (!userProfile) {
+      if (!userProfiles || userProfiles.length === 0) {
         console.error('❌ User profile not found in database');
         return null;
       }
+
+      const userProfile = userProfiles[0];
 
       const user: User = {
         id: userProfile.id,
