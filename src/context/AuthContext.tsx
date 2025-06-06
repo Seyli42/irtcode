@@ -28,11 +28,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   };
 
+  const syncUserWithPublicTable = async (supabaseUser: SupabaseUser) => {
+    try {
+      // Check if user exists in public.users table
+      const { data: existingUser, error: selectError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', supabaseUser.id)
+        .single();
+
+      if (selectError && selectError.code !== 'PGRST116') {
+        // PGRST116 is "not found" error, which is expected for new users
+        console.error('Error checking user existence:', selectError);
+        return;
+      }
+
+      // If user doesn't exist, create them
+      if (!existingUser) {
+        const metadata = supabaseUser.user_metadata;
+        const userData = {
+          id: supabaseUser.id,
+          email: supabaseUser.email || '',
+          name: metadata?.name || supabaseUser.email?.split('@')[0] || '',
+          role: (metadata?.role || 'employee') as UserRole,
+          created_at: supabaseUser.created_at,
+        };
+
+        const { error: insertError } = await supabase
+          .from('users')
+          .insert([userData]);
+
+        if (insertError) {
+          console.error('Error creating user in public table:', insertError);
+        } else {
+          console.log('User synced to public table:', userData.email);
+        }
+      }
+    } catch (error) {
+      console.error('Error syncing user with public table:', error);
+    }
+  };
+
   useEffect(() => {
     const initializeAuth = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
+          await syncUserWithPublicTable(session.user);
           setUser(mapSupabaseUser(session.user));
         }
       } catch (error) {
@@ -47,6 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
+        await syncUserWithPublicTable(session.user);
         setUser(mapSupabaseUser(session.user));
       } else {
         setUser(null);
@@ -73,6 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error("Aucun utilisateur trouvé.");
       }
 
+      await syncUserWithPublicTable(data.user);
       setUser(mapSupabaseUser(data.user));
     } catch (error: any) {
       console.error("Login error:", error);
