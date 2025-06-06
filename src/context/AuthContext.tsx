@@ -19,6 +19,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const syncUserWithPublicTable = async (supabaseUser: SupabaseUser): Promise<void> => {
     try {
+      // Check if user exists in public.users table
       const { data: existingUser, error: selectError } = await supabase
         .from('users')
         .select('id')
@@ -26,9 +27,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .maybeSingle();
 
       if (selectError) {
-        throw selectError;
+        console.error('Error checking user existence:', selectError);
+        return; // Don't throw, just log and continue
       }
 
+      // If user doesn't exist, create them
       if (!existingUser) {
         const metadata = supabaseUser.user_metadata;
         const { error: insertError } = await supabase
@@ -41,19 +44,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           });
 
         if (insertError) {
-          throw insertError;
+          console.error('Error creating user in public.users:', insertError);
+          return; // Don't throw, just log and continue
         }
       }
     } catch (error) {
-      console.error('Erreur lors de la synchronisation utilisateur:', error);
-      throw error;
+      console.error('Unexpected error in syncUserWithPublicTable:', error);
+      // Don't throw - we want the app to continue even if sync fails
     }
   };
 
   const fetchUserProfile = async (supabaseUser: SupabaseUser): Promise<User | null> => {
     try {
+      // First, ensure user exists in public.users table
       await syncUserWithPublicTable(supabaseUser);
 
+      // Then fetch the user profile
       const { data: userProfile, error } = await supabase
         .from('users')
         .select('*')
@@ -61,7 +67,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .single();
 
       if (error) {
-        throw error;
+        console.error('Error fetching user profile:', error);
+        return null;
+      }
+
+      if (!userProfile) {
+        console.error('User profile not found in database');
+        return null;
       }
 
       return {
@@ -72,7 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         createdAt: new Date(userProfile.created_at),
       };
     } catch (error) {
-      console.error('Erreur lors de la récupération du profil utilisateur:', error);
+      console.error('Error in fetchUserProfile:', error);
       return null;
     }
   };
@@ -86,23 +98,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(userProfile);
         }
       } catch (error) {
-        console.error('Erreur lors de l\'initialisation de l\'authentification:', error);
+        console.error('Error initializing auth:', error);
         setUser(null);
       } finally {
+        // Always set loading to false, regardless of success or failure
         setLoading(false);
       }
     };
 
     initializeAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        const userProfile = await fetchUserProfile(session.user);
-        setUser(userProfile);
-      } else {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      try {
+        if (session?.user) {
+          const userProfile = await fetchUserProfile(session.user);
+          setUser(userProfile);
+        } else {
+          setUser(null);
+        }
+      } catch (error) {
+        console.error('Error in auth state change:', error);
         setUser(null);
+      } finally {
+        // Always set loading to false
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => subscription.unsubscribe();
@@ -147,7 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
     } catch (error) {
-      console.error('Erreur lors de la déconnexion:', error);
+      console.error('Error during logout:', error);
     } finally {
       setUser(null);
     }
