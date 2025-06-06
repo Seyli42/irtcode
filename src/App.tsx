@@ -28,7 +28,7 @@ const App: React.FC = () => {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500 mx-auto mb-4"></div>
           <p className="text-gray-600 dark:text-gray-400">Chargement...</p>
-          <p className="text-xs text-gray-400 mt-2">Si le chargement persiste, vérifiez la configuration Supabase</p>
+          <p className="text-xs text-gray-400 mt-2">Initialisation de l'authentification...</p>
         </div>
       </div>
     );
@@ -41,7 +41,7 @@ const App: React.FC = () => {
       <Routes>
         <Route 
           path="/login" 
-          element={user ? <Navigate to="/" /> : <Login />} 
+          element={user ? <Navigate to="/" replace /> : <Login />} 
         />
         
         <Route

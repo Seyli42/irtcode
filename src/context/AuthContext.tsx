@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 import { User, UserRole } from '../types';
 import { supabase } from '../lib/supabase';
@@ -16,8 +16,10 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState(false);
+  const processingAuth = useRef(false);
 
-  console.log('🚀 AuthProvider initialized');
+  console.log('🚀 AuthProvider render - Loading:', loading, 'User:', user?.email || 'None', 'Initialized:', initialized);
 
   const syncUserWithPublicTable = async (supabaseUser: SupabaseUser): Promise<void> => {
     console.log('🔄 Starting user sync for:', supabaseUser.email);
@@ -42,8 +44,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .from('users')
           .insert({
             id: supabaseUser.id,
-            email: supabaseUser.email,
-            name: supabaseUser.user_metadata?.name || supabaseUser.email.split('@')[0],
+            email: supabaseUser.email || '',
+            name: supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User',
             role: 'employee' // Default role
           });
 
@@ -102,9 +104,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    console.log('🔄 AuthProvider useEffect triggered');
+    if (initialized) {
+      console.log('⚠️ Auth already initialized, skipping');
+      return;
+    }
+
+    console.log('🔄 AuthProvider useEffect triggered - initializing auth');
     
     const initializeAuth = async () => {
+      if (processingAuth.current) {
+        console.log('⚠️ Auth already processing, skipping');
+        return;
+      }
+
+      processingAuth.current = true;
       console.log('🔍 Initializing authentication...');
       
       try {
@@ -112,6 +125,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const timeoutId = setTimeout(() => {
           console.warn('⚠️ Auth initialization timeout - proceeding without auth');
           setLoading(false);
+          setInitialized(true);
+          processingAuth.current = false;
         }, 10000); // 10 second timeout
 
         const { data: { session }, error } = await supabase.auth.getSession();
@@ -135,13 +150,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } finally {
         console.log('✅ Auth initialization complete');
         setLoading(false);
+        setInitialized(true);
+        processingAuth.current = false;
       }
     };
 
     initializeAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('📡 Auth state change:', event);
+      console.log('📡 Auth state change:', event, 'Processing:', processingAuth.current);
+      
+      // Prevent processing during initial load
+      if (!initialized && event !== 'SIGNED_IN') {
+        console.log('⚠️ Skipping auth state change during initialization');
+        return;
+      }
+
+      // Prevent concurrent processing
+      if (processingAuth.current) {
+        console.log('⚠️ Auth processing in progress, skipping state change');
+        return;
+      }
+
+      processingAuth.current = true;
       
       try {
         if (session?.user) {
@@ -155,19 +186,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         console.error('❌ Error in auth state change handler:', error);
         setUser(null);
+      } finally {
+        setLoading(false);
+        processingAuth.current = false;
       }
-      
-      setLoading(false);
     });
 
     return () => {
       console.log('🧹 Cleaning up auth subscription');
       subscription.unsubscribe();
     };
-  }, []);
+  }, [initialized]);
 
   const login = async (email: string, password: string) => {
     console.log('🔐 Login attempt for:', email);
+    setLoading(true);
     
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -186,20 +219,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       console.log('✅ Login successful for:', data.user.email);
       
-      const userProfile = await fetchUserProfile(data.user);
-      if (!userProfile) {
-        throw new Error("Profil utilisateur non trouvé dans la base de données.");
-      }
-
-      setUser(userProfile);
+      // Don't manually set user here - let the auth state change handler do it
+      // This prevents race conditions and duplicate processing
+      
     } catch (error: any) {
       console.error('❌ Login failed:', error);
+      setLoading(false);
       throw error;
     }
   };
 
   const logout = async () => {
     console.log('👋 Logout initiated');
+    setLoading(true);
     
     try {
       const { error } = await supabase.auth.signOut();
@@ -219,14 +251,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('❌ Error during logout:', error);
     } finally {
       setUser(null);
+      setLoading(false);
     }
   };
 
   const isAllowed = (allowedRoles: UserRole[]) => {
     return user !== null && allowedRoles.includes(user.role);
   };
-
-  console.log('🎯 AuthProvider render - Loading:', loading, 'User:', user?.email || 'None');
 
   return (
     <AuthContext.Provider value={{ user, loading, login, logout, isAllowed }}>

@@ -31,12 +31,18 @@ const Login: React.FC = () => {
     }
 
     try {
+      console.log('🔐 Starting login process...');
       await login(trimmedEmail, trimmedPassword);
-      navigate('/');
+      console.log('✅ Login successful, navigating to home...');
+      
+      // Add a small delay to ensure auth state is updated
+      setTimeout(() => {
+        navigate('/', { replace: true });
+      }, 100);
+      
     } catch (error: any) {
-      console.error('Détails de l\'erreur de connexion:', error);
+      console.error('❌ Login failed:', error);
       setError(error.message || 'Une erreur est survenue lors de la connexion.');
-    } finally {
       setIsSubmitting(false);
     }
   };
@@ -86,6 +92,7 @@ const Login: React.FC = () => {
               required
               icon={<Mail size={18} />}
               autoComplete="email"
+              disabled={isSubmitting}
             />
 
             <InputField
@@ -97,6 +104,7 @@ const Login: React.FC = () => {
               required
               icon={<Lock size={18} />}
               autoComplete="current-password"
+              disabled={isSubmitting}
             />
 
             <div className="pt-2">
