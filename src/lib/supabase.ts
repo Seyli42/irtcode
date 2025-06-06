@@ -14,18 +14,26 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
     persistSession: true,
-    detectSessionInUrl: true
+    detectSessionInUrl: true,
+    flowType: 'pkce'
   },
   db: {
     schema: 'public'
+  },
+  global: {
+    headers: {
+      'X-Client-Info': 'irt-app'
+    }
   }
 });
 
-// Vérification de la connexion
+// Vérification de la connexion avec gestion d'erreur
 supabase.auth.onAuthStateChange((event, session) => {
   if (event === 'SIGNED_IN') {
     console.log('Connecté avec succès');
   } else if (event === 'SIGNED_OUT') {
     console.log('Déconnecté');
+  } else if (event === 'TOKEN_REFRESHED') {
+    console.log('Token rafraîchi');
   }
 });

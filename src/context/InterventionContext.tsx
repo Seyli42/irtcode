@@ -2,12 +2,11 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Intervention, ServiceProvider, ServiceType, User, ROLE_ACCESS, UserRole } from '../types';
 import { getServicePrice } from '../constants/pricing';
 import { useAuth } from './AuthContext';
-import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '../lib/supabase';
 
 interface InterventionContextType {
   interventions: Intervention[];
-  addIntervention: (intervention: Omit<Intervention, 'id' | 'userId' | 'createdAt'>) => void;
+  addIntervention: (intervention: Omit<Intervention, 'id' | 'userId' | 'createdAt'>) => Promise<void>;
   getUserInterventions: (userId?: string) => Intervention[];
   calculatePrice: (provider: ServiceProvider, serviceType: ServiceType, userRole?: UserRole) => number;
   loading: boolean;
@@ -21,14 +20,21 @@ export const InterventionProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const { user } = useAuth();
 
   useEffect(() => {
+    let mounted = true;
+
     const loadInterventions = async () => {
       if (!user) {
-        setInterventions([]);
-        setLoading(false);
+        if (mounted) {
+          setInterventions([]);
+          setLoading(false);
+        }
         return;
       }
 
-      setLoading(true);
+      if (mounted) {
+        setLoading(true);
+      }
+
       try {
         let query = supabase
           .from('interventions')
@@ -37,7 +43,20 @@ export const InterventionProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
         const { data: interventionsData, error } = await query;
 
-        if (error) throw error;
+        if (error) {
+          console.error('Error loading interventions:', error);
+          if (mounted) {
+            setInterventions([]);
+          }
+          return;
+        }
+
+        if (!interventionsData) {
+          if (mounted) {
+            setInterventions([]);
+          }
+          return;
+        }
 
         const loadedInterventions = interventionsData.map(intervention => ({
           id: intervention.id,
@@ -52,20 +71,32 @@ export const InterventionProvider: React.FC<{ children: React.ReactNode }> = ({ 
           createdAt: new Date(intervention.created_at)
         }));
 
-        setInterventions(loadedInterventions);
+        if (mounted) {
+          setInterventions(loadedInterventions);
+        }
       } catch (error) {
-        console.error('Erreur chargement interventions:', error);
-        setInterventions([]);
+        console.error('Error loading interventions:', error);
+        if (mounted) {
+          setInterventions([]);
+        }
       } finally {
-        setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
 
     loadInterventions();
+
+    return () => {
+      mounted = false;
+    };
   }, [user]);
 
   const addIntervention = async (intervention: Omit<Intervention, 'id' | 'userId' | 'createdAt'>) => {
-    if (!user) return;
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
 
     try {
       const newIntervention = {
@@ -85,7 +116,10 @@ export const InterventionProvider: React.FC<{ children: React.ReactNode }> = ({ 
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error adding intervention:', error);
+        throw new Error('Erreur lors de l\'ajout de l\'intervention');
+      }
 
       const createdIntervention: Intervention = {
         id: data.id,
@@ -102,7 +136,7 @@ export const InterventionProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
       setInterventions(prev => [createdIntervention, ...prev]);
     } catch (error) {
-      console.error('Erreur ajout intervention:', error);
+      console.error('Error adding intervention:', error);
       throw error;
     }
   };
