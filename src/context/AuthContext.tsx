@@ -25,25 +25,77 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log('🔄 Starting user sync for:', supabaseUser.email);
     
     try {
-      // Use upsert to handle both insert and update cases gracefully
-      const { error: upsertError } = await supabase
+      const userEmail = supabaseUser.email || '';
+      const userName = supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User';
+      
+      // First, try to find existing user by ID
+      const { data: existingUserById } = await supabase
         .from('users')
-        .upsert({
+        .select('*')
+        .eq('id', supabaseUser.id)
+        .single();
+
+      if (existingUserById) {
+        // User exists with this ID, update their info if needed
+        const { error: updateError } = await supabase
+          .from('users')
+          .update({
+            email: userEmail,
+            name: userName,
+          })
+          .eq('id', supabaseUser.id);
+
+        if (updateError) {
+          console.error('❌ Failed to update existing user:', updateError);
+          return;
+        }
+        
+        console.log('✅ Updated existing user by ID');
+        return;
+      }
+
+      // User doesn't exist by ID, check if email exists with different ID
+      const { data: existingUserByEmail } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', userEmail)
+        .single();
+
+      if (existingUserByEmail) {
+        // Email exists with different ID, update the existing record's ID
+        const { error: updateError } = await supabase
+          .from('users')
+          .update({
+            id: supabaseUser.id,
+            name: userName,
+          })
+          .eq('email', userEmail);
+
+        if (updateError) {
+          console.error('❌ Failed to update user ID for existing email:', updateError);
+          return;
+        }
+        
+        console.log('✅ Updated existing user ID for email:', userEmail);
+        return;
+      }
+
+      // Neither ID nor email exists, create new user
+      const { error: insertError } = await supabase
+        .from('users')
+        .insert({
           id: supabaseUser.id,
-          email: supabaseUser.email || '',
-          name: supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User',
+          email: userEmail,
+          name: userName,
           role: 'employee' // Default role
-        }, {
-          onConflict: 'id'
         });
 
-      if (upsertError) {
-        console.error('❌ Failed to upsert user in public.users:', upsertError);
-        // Don't throw - allow auth flow to continue
+      if (insertError) {
+        console.error('❌ Failed to insert new user:', insertError);
         return;
       }
       
-      console.log('✅ User synced in public.users table');
+      console.log('✅ Created new user in public.users table');
     } catch (error) {
       console.error('❌ Exception in syncUserWithPublicTable:', error);
       // Don't throw - allow auth flow to continue
