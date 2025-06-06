@@ -20,9 +20,14 @@ export const InterventionProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
 
+  console.log('🏗️ InterventionProvider initialized');
+
   useEffect(() => {
     const loadInterventions = async () => {
+      console.log('📊 Loading interventions...');
+      
       if (!user) {
+        console.log('ℹ️ No user, skipping intervention load');
         setInterventions([]);
         setLoading(false);
         return;
@@ -30,22 +35,41 @@ export const InterventionProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
       setLoading(true);
       try {
+        // Set timeout to prevent infinite loading
+        const timeoutId = setTimeout(() => {
+          console.warn('⚠️ Intervention loading timeout');
+          setLoading(false);
+        }, 8000);
+
         const { data: interventionsData, error } = await supabase
           .from('interventions')
           .select('*')
           .order('created_at', { ascending: false });
 
-        if (error) throw error;
+        clearTimeout(timeoutId);
 
-        const loadedInterventions = interventionsData.map(intervention => ({
-          ...intervention,
+        if (error) {
+          console.error('❌ Error loading interventions:', error);
+          throw error;
+        }
+
+        const loadedInterventions = interventionsData?.map(intervention => ({
+          id: intervention.id,
+          userId: intervention.user_id,
           date: new Date(intervention.date),
+          time: intervention.time,
+          ndNumber: intervention.nd_number,
+          provider: intervention.provider as ServiceProvider,
+          serviceType: intervention.service_type as ServiceType,
+          price: Number(intervention.price),
+          status: intervention.status as 'success' | 'failure',
           createdAt: new Date(intervention.created_at)
-        }));
+        })) || [];
 
+        console.log('✅ Loaded', loadedInterventions.length, 'interventions');
         setInterventions(loadedInterventions);
       } catch (error) {
-        console.error('Erreur chargement interventions:', error);
+        console.error('❌ Failed to load interventions:', error);
         setInterventions([]);
       } finally {
         setLoading(false);
@@ -56,41 +80,62 @@ export const InterventionProvider: React.FC<{ children: React.ReactNode }> = ({ 
   }, [user]);
 
   const addIntervention = async (intervention: Omit<Intervention, 'id' | 'userId' | 'createdAt'>) => {
-    if (!user) return;
-
-    const newIntervention: Intervention = {
-      ...intervention,
-      id: uuidv4(),
-      userId: user.id,
-      createdAt: new Date(),
-    };
+    console.log('➕ Adding intervention:', intervention.ndNumber);
+    
+    if (!user) {
+      console.error('❌ Cannot add intervention: no user');
+      return;
+    }
 
     try {
-      const { error } = await supabase
+      const newIntervention = {
+        user_id: user.id,
+        date: intervention.date.toISOString().split('T')[0],
+        time: intervention.time,
+        nd_number: intervention.ndNumber,
+        provider: intervention.provider,
+        service_type: intervention.serviceType,
+        price: intervention.price,
+        status: intervention.status
+      };
+
+      const { data, error } = await supabase
         .from('interventions')
-        .insert({
-          id: newIntervention.id,
-          user_id: newIntervention.userId,
-          date: newIntervention.date.toISOString().split('T')[0], // Format as YYYY-MM-DD
-          time: newIntervention.time,
-          nd_number: newIntervention.ndNumber,
-          provider: newIntervention.provider,
-          service_type: newIntervention.serviceType,
-          price: newIntervention.price,
-          status: newIntervention.status,
-          created_at: newIntervention.createdAt.toISOString()
-        });
+        .insert(newIntervention)
+        .select()
+        .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Failed to add intervention:', error);
+        throw error;
+      }
 
-      setInterventions(prev => [newIntervention, ...prev]);
+      const createdIntervention: Intervention = {
+        id: data.id,
+        userId: data.user_id,
+        date: new Date(data.date),
+        time: data.time,
+        ndNumber: data.nd_number,
+        provider: data.provider as ServiceProvider,
+        serviceType: data.service_type as ServiceType,
+        price: Number(data.price),
+        status: data.status as 'success' | 'failure',
+        createdAt: new Date(data.created_at)
+      };
+
+      setInterventions(prev => [createdIntervention, ...prev]);
+      console.log('✅ Intervention added successfully');
     } catch (error) {
-      console.error('Erreur ajout intervention:', error);
+      console.error('❌ Error adding intervention:', error);
+      throw error;
     }
   };
 
   const getUserInterventions = (userId?: string) => {
-    if (!user) return [];
+    if (!user) {
+      console.log('ℹ️ No user for getUserInterventions');
+      return [];
+    }
 
     const roleAccess = ROLE_ACCESS[user.role];
 
@@ -107,6 +152,8 @@ export const InterventionProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
     return getServicePrice(provider, serviceType);
   };
+
+  console.log('🎯 InterventionProvider render - Loading:', loading, 'Interventions:', interventions.length);
 
   return (
     <InterventionContext.Provider value={{
