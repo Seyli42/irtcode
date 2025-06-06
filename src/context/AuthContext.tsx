@@ -17,55 +17,63 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const mapSupabaseUser = (supabaseUser: SupabaseUser): User => {
-    const metadata = supabaseUser.user_metadata;
-    return {
-      id: supabaseUser.id,
-      email: supabaseUser.email || '',
-      name: metadata?.name || supabaseUser.email?.split('@')[0] || '',
-      role: (metadata?.role || 'employee') as UserRole,
-      createdAt: new Date(supabaseUser.created_at),
-    };
-  };
-
-  const syncUserWithPublicTable = async (supabaseUser: SupabaseUser) => {
+  const syncUserWithPublicTable = async (supabaseUser: SupabaseUser): Promise<void> => {
     try {
-      // Check if user exists in public.users table
       const { data: existingUser, error: selectError } = await supabase
         .from('users')
         .select('id')
         .eq('id', supabaseUser.id)
-        .single();
+        .maybeSingle();
 
-      if (selectError && selectError.code !== 'PGRST116') {
-        // PGRST116 is "not found" error, which is expected for new users
-        console.error('Error checking user existence:', selectError);
-        return;
+      if (selectError) {
+        throw selectError;
       }
 
-      // If user doesn't exist, create them
       if (!existingUser) {
         const metadata = supabaseUser.user_metadata;
-        const userData = {
-          id: supabaseUser.id,
-          email: supabaseUser.email || '',
-          name: metadata?.name || supabaseUser.email?.split('@')[0] || '',
-          role: (metadata?.role || 'employee') as UserRole,
-          created_at: supabaseUser.created_at,
-        };
-
         const { error: insertError } = await supabase
           .from('users')
-          .insert([userData]);
+          .insert({
+            id: supabaseUser.id,
+            email: supabaseUser.email || '',
+            name: metadata?.name || supabaseUser.email?.split('@')[0] || 'Utilisateur',
+            role: (metadata?.role || 'employee') as UserRole,
+          });
 
         if (insertError) {
-          console.error('Error creating user in public table:', insertError);
-        } else {
-          console.log('User synced to public table:', userData.email);
+          throw insertError;
         }
       }
     } catch (error) {
-      console.error('Error syncing user with public table:', error);
+      console.error('Erreur lors de la synchronisation utilisateur:', error);
+      throw error;
+    }
+  };
+
+  const fetchUserProfile = async (supabaseUser: SupabaseUser): Promise<User | null> => {
+    try {
+      await syncUserWithPublicTable(supabaseUser);
+
+      const { data: userProfile, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', supabaseUser.id)
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return {
+        id: userProfile.id,
+        email: userProfile.email,
+        name: userProfile.name,
+        role: userProfile.role as UserRole,
+        createdAt: new Date(userProfile.created_at),
+      };
+    } catch (error) {
+      console.error('Erreur lors de la récupération du profil utilisateur:', error);
+      return null;
     }
   };
 
@@ -74,11 +82,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
-          await syncUserWithPublicTable(session.user);
-          setUser(mapSupabaseUser(session.user));
+          const userProfile = await fetchUserProfile(session.user);
+          setUser(userProfile);
         }
       } catch (error) {
-        console.error('Error initializing auth:', error);
+        console.error('Erreur lors de l\'initialisation de l\'authentification:', error);
         setUser(null);
       } finally {
         setLoading(false);
@@ -89,8 +97,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
-        await syncUserWithPublicTable(session.user);
-        setUser(mapSupabaseUser(session.user));
+        const userProfile = await fetchUserProfile(session.user);
+        setUser(userProfile);
       } else {
         setUser(null);
       }
@@ -108,7 +116,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (error) {
-        console.error("Erreur Supabase :", error);
         throw new Error("Email ou mot de passe incorrect. Veuillez vérifier vos identifiants.");
       }
 
@@ -116,10 +123,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error("Aucun utilisateur trouvé.");
       }
 
-      await syncUserWithPublicTable(data.user);
-      setUser(mapSupabaseUser(data.user));
+      const userProfile = await fetchUserProfile(data.user);
+      if (!userProfile) {
+        throw new Error("Impossible de récupérer le profil utilisateur.");
+      }
+
+      setUser(userProfile);
     } catch (error: any) {
-      console.error("Login error:", error);
       throw error;
     }
   };
@@ -128,22 +138,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { error } = await supabase.auth.signOut();
       if (error) {
-        // Check if the error is related to missing session
         const isSessionError = 
           error.message.includes('Auth session missing') || 
           error.message.includes('Session from session_id claim in JWT does not exist');
         
         if (!isSessionError) {
           throw error;
-        } else {
-          console.warn('Session already invalid during logout:', error.message);
         }
       }
     } catch (error) {
-      console.error('Error during logout:', error);
-      // Don't rethrow the error as we want to ensure the user state is cleared
+      console.error('Erreur lors de la déconnexion:', error);
     } finally {
-      // Always clear the user state regardless of errors
       setUser(null);
     }
   };
