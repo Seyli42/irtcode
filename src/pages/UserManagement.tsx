@@ -35,21 +35,29 @@ const UserManagement: React.FC = () => {
   }, []);
   
   const loadUsers = async () => {
+    console.log('🔄 Début du chargement des utilisateurs...');
     setLoading(true);
     setError(null);
+    
     try {
+      console.log('📡 Tentative de connexion à Supabase...');
+      
       const { data: users, error: usersError } = await supabase
         .from('users')
         .select('*')
         .order('created_at', { ascending: false });
 
+      console.log('📊 Réponse Supabase:', { users, usersError });
+
       if (usersError) {
-        console.error('Erreur base de données:', usersError);
-        throw new Error('Échec du chargement des utilisateurs');
+        console.error('❌ Erreur base de données:', usersError);
+        throw new Error(`Erreur DB: ${usersError.message}`);
       }
 
       if (!users) {
-        throw new Error('Aucune donnée utilisateur reçue');
+        console.warn('⚠️ Aucune donnée utilisateur reçue');
+        setUsers([]);
+        return;
       }
 
       const mappedUsers = users.map(user => ({
@@ -60,15 +68,34 @@ const UserManagement: React.FC = () => {
         createdAt: new Date(user.created_at)
       }));
 
-      console.log('Utilisateurs chargés:', mappedUsers);
+      console.log('✅ Utilisateurs chargés avec succès:', mappedUsers.length);
       setUsers(mappedUsers);
+      
     } catch (error: any) {
-      console.error('Échec du chargement des utilisateurs:', error);
-      setError('Erreur lors du chargement des utilisateurs : ' + error.message);
+      console.error('💥 Erreur lors du chargement:', error);
+      setError(`Erreur: ${error.message}`);
+      setUsers([]); // Important : éviter les états undefined
     } finally {
-      setLoading(false);
+      console.log('🏁 Fin du chargement - setLoading(false)');
+      setLoading(false); // CRITIQUE : toujours exécuté
     }
   };
+
+  // Test de connexion simple
+  const testConnection = async () => {
+    console.log('🧪 Test de connexion...');
+    try {
+      const { data, error } = await supabase.from('users').select('count');
+      console.log('🧪 Test connection result:', { data, error });
+    } catch (err) {
+      console.error('🧪 Test connection error:', err);
+    }
+  };
+
+  // Exécuter le test au montage du composant
+  useEffect(() => {
+    testConnection();
+  }, []);
   
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,6 +104,8 @@ const UserManagement: React.FC = () => {
     setSuccessMessage(null);
     
     try {
+      console.log('👤 Création d\'un nouvel utilisateur...');
+      
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
@@ -88,8 +117,16 @@ const UserManagement: React.FC = () => {
         }
       });
 
-      if (signUpError) throw signUpError;
-      if (!authData.user) throw new Error('Échec de la création du compte');
+      if (signUpError) {
+        console.error('❌ Erreur signup:', signUpError);
+        throw signUpError;
+      }
+      
+      if (!authData.user) {
+        throw new Error('Échec de la création du compte');
+      }
+
+      console.log('✅ Compte auth créé, insertion en base...');
 
       const { error: insertError } = await supabase
         .from('users')
@@ -100,7 +137,12 @@ const UserManagement: React.FC = () => {
           role: formData.role
         });
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        console.error('❌ Erreur insertion:', insertError);
+        throw insertError;
+      }
+
+      console.log('✅ Utilisateur créé avec succès');
 
       setShowForm(false);
       setFormData({
@@ -118,7 +160,7 @@ const UserManagement: React.FC = () => {
       }, 3000);
       
     } catch (error: any) {
-      console.error('Échec de l\'ajout de l\'utilisateur:', error);
+      console.error('💥 Erreur création utilisateur:', error);
       setError(error.message || 'Erreur lors de la création de l\'utilisateur');
     } finally {
       setIsSubmitting(false);
@@ -130,18 +172,19 @@ const UserManagement: React.FC = () => {
     
     setError(null);
     try {
+      console.log('🗑️ Suppression utilisateur:', userId);
+      
       const { error: deleteError } = await supabase
         .from('users')
         .delete()
         .eq('id', userId);
       
-      if (deleteError) throw deleteError;
-
-      const { error: authDeleteError } = await supabase.auth.admin.deleteUser(userId);
-      
-      if (authDeleteError) {
-        console.warn('Échec de la suppression du compte:', authDeleteError);
+      if (deleteError) {
+        console.error('❌ Erreur suppression:', deleteError);
+        throw deleteError;
       }
+
+      console.log('✅ Utilisateur supprimé de la base');
 
       await loadUsers();
       setSuccessMessage('Utilisateur supprimé avec succès');
@@ -150,7 +193,7 @@ const UserManagement: React.FC = () => {
         setSuccessMessage(null);
       }, 3000);
     } catch (error: any) {
-      console.error('Échec de la suppression de l\'utilisateur:', error);
+      console.error('💥 Erreur suppression:', error);
       setError(error.message || 'Erreur lors de la suppression de l\'utilisateur');
     }
   };
@@ -217,7 +260,7 @@ const UserManagement: React.FC = () => {
         
         {error && (
           <div className="mb-4 p-3 bg-error-50 border border-error-200 text-error-700 rounded-md">
-            {error}
+            <strong>Erreur:</strong> {error}
           </div>
         )}
         
