@@ -175,6 +175,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         if (error) {
           console.error('❌ Session error:', error);
+          
+          // Check if the error is related to invalid refresh token
+          if (error.message && error.message.includes('refresh_token_not_found')) {
+            console.log('🧹 Invalid refresh token detected, clearing session...');
+            try {
+              await supabase.auth.signOut();
+              console.log('✅ Invalid session cleared');
+            } catch (signOutError) {
+              console.error('❌ Error clearing invalid session:', signOutError);
+            }
+          }
+          
           setUser(null);
         } else if (session?.user) {
           console.log('✅ Session found for:', session.user.email);
@@ -186,6 +198,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch (error) {
         console.error('❌ Error initializing auth:', error);
+        
+        // Check if the caught error is related to invalid refresh token
+        if (error instanceof Error && error.message.includes('refresh_token_not_found')) {
+          console.log('🧹 Invalid refresh token detected in catch block, clearing session...');
+          try {
+            await supabase.auth.signOut();
+            console.log('✅ Invalid session cleared');
+          } catch (signOutError) {
+            console.error('❌ Error clearing invalid session:', signOutError);
+          }
+        }
+        
         setUser(null);
       } finally {
         console.log('✅ Auth initialization complete');
@@ -278,7 +302,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (error) {
         const isSessionError = 
           error.message.includes('Auth session missing') || 
-          error.message.includes('Session from session_id claim in JWT does not exist');
+          error.message.includes('Session from session_id claim in JWT does not exist') ||
+          error.message.includes('refresh_token_not_found');
         
         if (!isSessionError) {
           throw error;
