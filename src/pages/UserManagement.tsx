@@ -129,22 +129,8 @@ const UserManagement: React.FC = () => {
       
       if (!authData.user) throw new Error('Échec de la création du compte');
 
-      const { error: insertError } = await supabase
-        .from('users')
-        .insert({
-          id: authData.user.id,
-          email: formData.email.trim().toLowerCase(),
-          name: formData.name,
-          role: formData.role
-        });
-
-      if (insertError) {
-        if (insertError.code === '23505') {
-          throw new Error('Cette adresse email est déjà utilisée. Veuillez choisir une autre adresse.');
-        }
-        throw insertError;
-      }
-
+      // Remove the manual insert - AuthContext will handle user synchronization automatically
+      
       setShowForm(false);
       setFormData({
         email: '',
@@ -154,7 +140,11 @@ const UserManagement: React.FC = () => {
       });
       
       setSuccessMessage('Utilisateur créé avec succès');
-      await loadUsers();
+      
+      // Wait a moment for AuthContext to sync the user, then reload
+      setTimeout(async () => {
+        await loadUsers();
+      }, 1000);
       
       setTimeout(() => {
         setSuccessMessage(null);
