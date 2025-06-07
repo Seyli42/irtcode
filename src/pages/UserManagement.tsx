@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
-import { Plus, Trash, Edit, Loader2, User, Users, Search, CheckCircle } from 'lucide-react';
+import { Plus, Trash, Edit, Loader2, User, Users, Search, CheckCircle, Save, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import Card from '../components/ui/Card';
@@ -15,10 +15,11 @@ interface UserFormData {
 }
 
 const UserManagement: React.FC = () => {
-  const { isAllowed } = useAuth();
+  const { isAllowed, user: currentUser } = useAuth();
   const [users, setUsers] = useState<UserType[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingUser, setEditingUser] = useState<UserType | null>(null);
   const [formData, setFormData] = useState<UserFormData>({
     email: '',
     name: '',
@@ -69,6 +70,31 @@ const UserManagement: React.FC = () => {
       setLoading(false);
     }
   };
+
+  const checkEmailExists = async (email: string, excludeUserId?: string): Promise<boolean> => {
+    try {
+      let query = supabase
+        .from('users')
+        .select('id')
+        .eq('email', email.trim().toLowerCase());
+      
+      if (excludeUserId) {
+        query = query.neq('id', excludeUserId);
+      }
+      
+      const { data, error } = await query;
+      
+      if (error) {
+        console.error('Error checking email:', error);
+        return false;
+      }
+      
+      return data && data.length > 0;
+    } catch (error) {
+      console.error('Error checking email existence:', error);
+      return false;
+    }
+  };
   
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,8 +103,14 @@ const UserManagement: React.FC = () => {
     setSuccessMessage(null);
     
     try {
+      // Check if email already exists
+      const emailExists = await checkEmailExists(formData.email);
+      if (emailExists) {
+        throw new Error('Cette adresse email est déjà utilisée. Veuillez choisir une autre adresse.');
+      }
+
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
-        email: formData.email,
+        email: formData.email.trim().toLowerCase(),
         password: formData.password,
         options: {
           data: {
@@ -88,19 +120,30 @@ const UserManagement: React.FC = () => {
         }
       });
 
-      if (signUpError) throw signUpError;
+      if (signUpError) {
+        if (signUpError.message.includes('already registered')) {
+          throw new Error('Cette adresse email est déjà utilisée. Veuillez choisir une autre adresse.');
+        }
+        throw signUpError;
+      }
+      
       if (!authData.user) throw new Error('Échec de la création du compte');
 
       const { error: insertError } = await supabase
         .from('users')
         .insert({
           id: authData.user.id,
-          email: formData.email,
+          email: formData.email.trim().toLowerCase(),
           name: formData.name,
           role: formData.role
         });
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        if (insertError.code === '23505') {
+          throw new Error('Cette adresse email est déjà utilisée. Veuillez choisir une autre adresse.');
+        }
+        throw insertError;
+      }
 
       setShowForm(false);
       setFormData({
@@ -124,6 +167,62 @@ const UserManagement: React.FC = () => {
       setIsSubmitting(false);
     }
   };
+
+  const handleEditUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    
+    setIsSubmitting(true);
+    setError(null);
+    setSuccessMessage(null);
+    
+    try {
+      // Check if email already exists (excluding current user)
+      if (formData.email !== editingUser.email) {
+        const emailExists = await checkEmailExists(formData.email, editingUser.id);
+        if (emailExists) {
+          throw new Error('Cette adresse email est déjà utilisée. Veuillez choisir une autre adresse.');
+        }
+      }
+
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({
+          email: formData.email.trim().toLowerCase(),
+          name: formData.name,
+          role: formData.role
+        })
+        .eq('id', editingUser.id);
+
+      if (updateError) {
+        if (updateError.code === '23505') {
+          throw new Error('Cette adresse email est déjà utilisée. Veuillez choisir une autre adresse.');
+        }
+        throw updateError;
+      }
+
+      setEditingUser(null);
+      setFormData({
+        email: '',
+        name: '',
+        role: 'employee',
+        password: '',
+      });
+      
+      setSuccessMessage('Utilisateur modifié avec succès');
+      await loadUsers();
+      
+      setTimeout(() => {
+        setSuccessMessage(null);
+      }, 3000);
+      
+    } catch (error: any) {
+      console.error('Échec de la modification de l\'utilisateur:', error);
+      setError(error.message || 'Erreur lors de la modification de l\'utilisateur');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
   
   const handleDeleteUser = async (userId: string) => {
     if (!window.confirm('Êtes-vous sûr de vouloir supprimer cet utilisateur ?')) return;
@@ -137,10 +236,14 @@ const UserManagement: React.FC = () => {
       
       if (deleteError) throw deleteError;
 
-      const { error: authDeleteError } = await supabase.auth.admin.deleteUser(userId);
-      
-      if (authDeleteError) {
-        console.warn('Échec de la suppression du compte:', authDeleteError);
+      // Try to delete from auth, but don't fail if it doesn't work
+      try {
+        const { error: authDeleteError } = await supabase.auth.admin.deleteUser(userId);
+        if (authDeleteError) {
+          console.warn('Échec de la suppression du compte auth:', authDeleteError);
+        }
+      } catch (authError) {
+        console.warn('Could not delete from auth:', authError);
       }
 
       await loadUsers();
@@ -153,6 +256,27 @@ const UserManagement: React.FC = () => {
       console.error('Échec de la suppression de l\'utilisateur:', error);
       setError(error.message || 'Erreur lors de la suppression de l\'utilisateur');
     }
+  };
+
+  const startEditUser = (user: UserType) => {
+    setEditingUser(user);
+    setFormData({
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      password: '', // Don't pre-fill password
+    });
+    setShowForm(false); // Close add form if open
+  };
+
+  const cancelEdit = () => {
+    setEditingUser(null);
+    setFormData({
+      email: '',
+      name: '',
+      role: 'employee',
+      password: '',
+    });
   };
   
   if (!isAllowed(['admin'])) {
@@ -189,6 +313,10 @@ const UserManagement: React.FC = () => {
         return role;
     }
   };
+
+  const canEditUser = (user: UserType) => {
+    return currentUser?.role === 'admin' || currentUser?.id === user.id;
+  };
   
   return (
     <div className="py-6">
@@ -196,7 +324,7 @@ const UserManagement: React.FC = () => {
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-xl font-semibold">Gestion des Utilisateurs</h1>
           
-          {!showForm && (
+          {!showForm && !editingUser && (
             <Button
               variant="primary"
               size="sm"
@@ -223,9 +351,15 @@ const UserManagement: React.FC = () => {
         
         {showForm && (
           <div className="mb-6 p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800/50">
-            <h2 className="text-lg font-medium mb-4">
-              Nouvel Utilisateur
-            </h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-medium">Nouvel Utilisateur</h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<X size={16} />}
+                onClick={() => setShowForm(false)}
+              />
+            </div>
             
             <form onSubmit={handleAddUser} className="space-y-4">
               <div>
@@ -301,6 +435,82 @@ const UserManagement: React.FC = () => {
             </form>
           </div>
         )}
+
+        {editingUser && (
+          <div className="mb-6 p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800/50">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-medium">Modifier l'utilisateur</h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<X size={16} />}
+                onClick={cancelEdit}
+              />
+            </div>
+            
+            <form onSubmit={handleEditUser} className="space-y-4">
+              <div>
+                <label htmlFor="edit-name" className="form-label">Nom complet</label>
+                <input
+                  type="text"
+                  id="edit-name"
+                  className="form-input"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  required
+                />
+              </div>
+              
+              <div>
+                <label htmlFor="edit-email" className="form-label">Email</label>
+                <input
+                  type="email"
+                  id="edit-email"
+                  className="form-input"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  required
+                />
+              </div>
+              
+              {currentUser?.role === 'admin' && (
+                <div>
+                  <label htmlFor="edit-role" className="form-label">Rôle</label>
+                  <select
+                    id="edit-role"
+                    className="form-select"
+                    value={formData.role}
+                    onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })}
+                    required
+                  >
+                    <option value="admin">Administrateur</option>
+                    <option value="auto-entrepreneur">Auto-Entrepreneur</option>
+                    <option value="employee">Employé</option>
+                  </select>
+                </div>
+              )}
+              
+              <div className="flex space-x-3 pt-2">
+                <Button
+                  type="submit"
+                  disabled={isSubmitting}
+                  icon={isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                >
+                  {isSubmitting ? 'Modification...' : 'Sauvegarder'}
+                </Button>
+                
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={cancelEdit}
+                  disabled={isSubmitting}
+                >
+                  Annuler
+                </Button>
+              </div>
+            </form>
+          </div>
+        )}
         
         <div className="mb-4">
           <div className="relative">
@@ -338,21 +548,25 @@ const UserManagement: React.FC = () => {
                   </div>
                   
                   <div className="flex space-x-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={<Edit size={16} />}
-                      onClick={() => alert('Fonctionnalité à implémenter')}
-                      aria-label="Modifier"
-                    />
+                    {canEditUser(user) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<Edit size={16} />}
+                        onClick={() => startEditUser(user)}
+                        aria-label="Modifier"
+                      />
+                    )}
                     
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={<Trash size={16} className="text-error-500" />}
-                      onClick={() => handleDeleteUser(user.id)}
-                      aria-label="Supprimer"
-                    />
+                    {currentUser?.role === 'admin' && currentUser.id !== user.id && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<Trash size={16} className="text-error-500" />}
+                        onClick={() => handleDeleteUser(user.id)}
+                        aria-label="Supprimer"
+                      />
+                    )}
                   </div>
                 </div>
               </div>
