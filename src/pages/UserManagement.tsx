@@ -226,15 +226,8 @@ const UserManagement: React.FC = () => {
       
       if (deleteError) throw deleteError;
 
-      // Try to delete from auth, but don't fail if it doesn't work
-      try {
-        const { error: authDeleteError } = await supabase.auth.admin.deleteUser(userId);
-        if (authDeleteError) {
-          console.warn('Échec de la suppression du compte auth:', authDeleteError);
-        }
-      } catch (authError) {
-        console.warn('Could not delete from auth:', authError);
-      }
+      // Note: User will be removed from the application's user list.
+      // Complete deletion from Supabase Auth would require a backend function with service role privileges.
 
       await loadUsers();
       setSuccessMessage('Utilisateur supprimé avec succès');
