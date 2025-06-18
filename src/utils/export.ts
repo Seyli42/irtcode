@@ -53,33 +53,88 @@ export function downloadCSV(content: string, filename: string) {
   URL.revokeObjectURL(link.href);
 }
 
-export function generatePDF(interventions: Intervention[], selectedUser?: User | null, allUsers?: User[]) {
+// Fonction pour convertir une image en base64
+const getImageAsBase64 = async (imagePath: string): Promise<string | null> => {
+  try {
+    const response = await fetch(imagePath);
+    if (!response.ok) return null;
+    
+    const blob = await response.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.warn('Impossible de charger le logo:', error);
+    return null;
+  }
+};
+
+export async function generatePDF(interventions: Intervention[], selectedUser?: User | null, allUsers?: User[]) {
   const doc = new jsPDF();
   
-  // Add title
+  // Essayer de charger et ajouter le logo
+  let logoHeight = 0;
+  try {
+    const logoBase64 = await getImageAsBase64('/images/logo.svg');
+    if (logoBase64) {
+      // Ajouter le logo en haut à gauche
+      doc.addImage(logoBase64, 'SVG', 14, 10, 30, 15);
+      logoHeight = 20;
+    }
+  } catch (error) {
+    console.warn('Impossible d\'ajouter le logo au PDF:', error);
+  }
+  
+  // Ajuster la position du titre en fonction de la présence du logo
+  const titleY = logoHeight > 0 ? 15 : 20;
+  
+  // Ajouter le titre à côté du logo
   doc.setFontSize(20);
-  doc.text('Rapport des Interventions', 14, 20);
+  doc.setFont('helvetica', 'bold');
+  doc.text('IRT - Rapport des Interventions', logoHeight > 0 ? 50 : 14, titleY);
   
-  // Add period info
+  // Informations de génération
   doc.setFontSize(12);
-  doc.text(`Généré le ${format(new Date(), 'dd/MM/yyyy HH:mm', { locale: fr })}`, 14, 30);
+  doc.setFont('helvetica', 'normal');
+  const infoY = titleY + 10;
+  doc.text(`Généré le ${format(new Date(), 'dd/MM/yyyy HH:mm', { locale: fr })}`, 14, infoY);
   
+  let currentY = infoY + 5;
+  
+  // Informations utilisateur sélectionné
   if (selectedUser) {
-    doc.text(`Utilisateur : ${selectedUser.name}`, 14, 40);
+    currentY += 5;
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Utilisateur : ${selectedUser.name}`, 14, currentY);
+    doc.setFont('helvetica', 'normal');
+    
     if (selectedUser.role === 'auto-entrepreneur') {
-      let yPos = 45;
       if (selectedUser.siren) {
-        doc.text(`SIREN : ${selectedUser.siren}`, 14, yPos);
-        yPos += 5;
+        currentY += 5;
+        doc.text(`SIREN : ${selectedUser.siren}`, 14, currentY);
       }
       if (selectedUser.address) {
-        doc.text(`Adresse : ${selectedUser.address}`, 14, yPos);
-        yPos += 5;
+        currentY += 5;
+        doc.text(`Adresse : ${selectedUser.address}`, 14, currentY);
       }
     }
   }
   
-  // Prepare table data
+  // Informations de l'entreprise IRT
+  currentY += 10;
+  doc.setFontSize(10);
+  doc.setTextColor(100, 100, 100);
+  doc.text('IRT - 5 rue Fénelon, 33000 BORDEAUX', 14, currentY);
+  
+  // Ligne de séparation
+  currentY += 5;
+  doc.setDrawColor(200, 200, 200);
+  doc.line(14, currentY, 196, currentY);
+  
+  // Préparer les données du tableau
   const headers = selectedUser 
     ? [['Date', 'ND', 'Opérateur', 'Service', 'Prix', 'Statut']]
     : [['Date', 'ND', 'Opérateur', 'Service', 'Prix', 'Statut', 'Utilisateur', 'SIREN', 'Adresse']];
@@ -108,27 +163,35 @@ export function generatePDF(interventions: Intervention[], selectedUser?: User |
     }
   });
   
-  // Calculate start position based on user info
-  let startY = selectedUser ? 45 : 35;
-  if (selectedUser?.role === 'auto-entrepreneur') {
-    if (selectedUser.siren) startY += 5;
-    if (selectedUser.address) startY += 5;
-  }
+  // Position de départ du tableau
+  const tableStartY = currentY + 10;
   
-  // Add table
+  // Ajouter le tableau
   (doc as any).autoTable({
     head: headers,
     body: data,
-    startY: startY,
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [79, 70, 229] },
+    startY: tableStartY,
+    styles: { 
+      fontSize: 8,
+      cellPadding: 3
+    },
+    headStyles: { 
+      fillColor: [79, 70, 229],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold'
+    },
+    alternateRowStyles: {
+      fillColor: [248, 249, 250]
+    },
     columnStyles: selectedUser ? {} : {
+      6: { cellWidth: 25 }, // Utilisateur column
       7: { cellWidth: 20 }, // SIREN column
       8: { cellWidth: 30 }  // Adresse column
-    }
+    },
+    margin: { left: 14, right: 14 }
   });
   
-  // Add summary
+  // Ajouter le résumé
   const totalAmount = interventions.reduce((sum, item) => sum + item.price, 0);
   const successCount = interventions.filter(i => i.status === 'success').length;
   const totalCount = interventions.length;
@@ -136,10 +199,31 @@ export function generatePDF(interventions: Intervention[], selectedUser?: User |
   
   const finalY = (doc as any).lastAutoTable.finalY || 150;
   
-  doc.text('Résumé :', 14, finalY + 10);
-  doc.text(`Montant total : ${totalAmount}€`, 14, finalY + 20);
-  doc.text(`Taux de succès : ${successRate}%`, 14, finalY + 30);
-  doc.text(`Nombre d'interventions : ${totalCount}`, 14, finalY + 40);
+  // Cadre pour le résumé
+  doc.setDrawColor(79, 70, 229);
+  doc.setFillColor(248, 249, 250);
+  doc.rect(14, finalY + 10, 182, 35, 'FD');
+  
+  // Titre du résumé
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(79, 70, 229);
+  doc.text('Résumé des interventions', 20, finalY + 20);
+  
+  // Données du résumé
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(0, 0, 0);
+  doc.text(`Nombre d'interventions : ${totalCount}`, 20, finalY + 28);
+  doc.text(`Montant total : ${totalAmount}€`, 20, finalY + 35);
+  doc.text(`Taux de succès : ${successRate}%`, 20, finalY + 42);
+  
+  // Pied de page
+  const pageHeight = doc.internal.pageSize.height;
+  doc.setFontSize(8);
+  doc.setTextColor(150, 150, 150);
+  doc.text('Document généré automatiquement par IRT', 14, pageHeight - 10);
+  doc.text(`Page 1`, 196 - 20, pageHeight - 10);
   
   return doc;
 }
