@@ -131,14 +131,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearTimeout(timeoutId);
         
         if (error) {
-          console.error('❌ Auth error:', error);
-          
-          // Clear any invalid session
-          if (error.message && (
+          // Check if this is an expected auth state (missing/invalid session)
+          const isExpectedAuthState = error.message && (
             error.message.includes('refresh_token_not_found') ||
             error.message.includes('Invalid Refresh Token') ||
             error.message.includes('Auth session missing')
-          )) {
+          );
+          
+          if (isExpectedAuthState) {
+            console.warn('⚠️ Expected auth state:', error.message);
+          } else {
+            console.error('❌ Auth error:', error);
+          }
+          
+          // Clear any invalid session
+          if (isExpectedAuthState) {
             console.log('🧹 Invalid session detected, clearing...');
             try {
               await supabase.auth.signOut();
