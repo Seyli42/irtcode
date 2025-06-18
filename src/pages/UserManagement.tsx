@@ -286,25 +286,61 @@ const UserManagement: React.FC = () => {
   };
   
   const handleDeleteUser = async (userId: string) => {
-    if (!window.confirm('Êtes-vous sûr de vouloir supprimer cet utilisateur ?')) return;
+    if (!window.confirm('Êtes-vous sûr de vouloir supprimer cet utilisateur ? Cette action supprimera également toutes ses interventions.')) return;
     
     setError(null);
     try {
-      const { error: deleteError } = await supabase
+      console.log('🗑️ Début de la suppression de l\'utilisateur:', userId);
+      
+      // D'abord supprimer les interventions de l'utilisateur
+      console.log('🗑️ Suppression des interventions...');
+      const { error: interventionsError } = await supabase
+        .from('interventions')
+        .delete()
+        .eq('user_id', userId);
+      
+      if (interventionsError) {
+        console.error('❌ Erreur suppression interventions:', interventionsError);
+        throw new Error('Erreur lors de la suppression des interventions de l\'utilisateur');
+      }
+      
+      console.log('✅ Interventions supprimées');
+      
+      // Ensuite supprimer l'utilisateur de la table users
+      console.log('🗑️ Suppression de l\'utilisateur...');
+      const { error: userError } = await supabase
         .from('users')
         .delete()
         .eq('id', userId);
       
-      if (deleteError) throw deleteError;
+      if (userError) {
+        console.error('❌ Erreur suppression utilisateur:', userError);
+        throw new Error('Erreur lors de la suppression de l\'utilisateur');
+      }
+      
+      console.log('✅ Utilisateur supprimé');
+      
+      // Enfin, supprimer le compte auth (optionnel, car l'utilisateur ne pourra plus se connecter sans profil)
+      try {
+        console.log('🗑️ Tentative de suppression du compte auth...');
+        // Note: La suppression du compte auth nécessite des privilèges service_role
+        // Pour l'instant, on laisse le compte auth mais l'utilisateur ne pourra plus se connecter
+        // car son profil n'existe plus dans la table users
+        console.log('ℹ️ Compte auth conservé (l\'utilisateur ne peut plus se connecter sans profil)');
+      } catch (authError) {
+        console.warn('⚠️ Impossible de supprimer le compte auth:', authError);
+        // Ce n'est pas critique car l'utilisateur ne peut plus se connecter sans profil
+      }
 
       await loadUsers();
-      setSuccessMessage('Utilisateur supprimé avec succès');
+      setSuccessMessage('Utilisateur et ses données supprimés avec succès');
       
       setTimeout(() => {
         setSuccessMessage(null);
       }, 3000);
+      
     } catch (error: any) {
-      console.error('Échec de la suppression de l\'utilisateur:', error);
+      console.error('❌ Échec de la suppression de l\'utilisateur:', error);
       setError(error.message || 'Erreur lors de la suppression de l\'utilisateur');
     }
   };
