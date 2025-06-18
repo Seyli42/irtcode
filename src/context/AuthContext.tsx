@@ -21,8 +21,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   console.log('🚀 AuthProvider render - Loading:', loading, 'User:', user?.email || 'None', 'Initialized:', initialized);
 
-  const createUserProfile = async (supabaseUser: SupabaseUser): Promise<void> => {
-    console.log('🔄 Creating user profile for:', supabaseUser.email);
+  const ensureUserProfileExists = async (supabaseUser: SupabaseUser): Promise<void> => {
+    console.log('🔄 Ensuring user profile exists for:', supabaseUser.email);
     
     try {
       const userEmail = supabaseUser.email || '';
@@ -31,24 +31,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const userSiren = supabaseUser.user_metadata?.siren || null;
       const userAddress = supabaseUser.user_metadata?.address || null;
       
-      // Vérifier si l'utilisateur existe déjà
+      // Check if user already exists
       const { data: existingUser, error: checkError } = await supabase
         .from('users')
         .select('id')
         .eq('id', supabaseUser.id)
         .maybeSingle();
 
-      if (checkError) {
+      if (checkError && checkError.code !== 'PGRST116') {
         console.error('❌ Error checking existing user:', checkError);
         return;
       }
 
       if (existingUser) {
-        console.log('✅ User already exists in database');
+        console.log('✅ User profile already exists');
         return;
       }
 
-      // Créer l'utilisateur s'il n'existe pas
+      // Create user profile if it doesn't exist
+      console.log('📝 Creating new user profile...');
       const { error: insertError } = await supabase
         .from('users')
         .insert({
@@ -61,13 +62,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
 
       if (insertError) {
-        console.error('❌ Failed to create user in database:', insertError);
+        // If it's a duplicate key error, that's fine - user was created by another process
+        if (insertError.code === '23505') {
+          console.log('✅ User profile already exists (created concurrently)');
+          return;
+        }
+        console.error('❌ Failed to create user profile:', insertError);
         return;
       }
       
       console.log('✅ User profile created successfully');
     } catch (error) {
-      console.error('❌ Exception in createUserProfile:', error);
+      console.error('❌ Exception in ensureUserProfileExists:', error);
     }
   };
 
@@ -75,10 +81,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log('📋 Fetching user profile for:', supabaseUser.email);
     
     try {
-      // D'abord, s'assurer que le profil utilisateur existe
-      await createUserProfile(supabaseUser);
+      // First ensure the user profile exists
+      await ensureUserProfileExists(supabaseUser);
       
-      // Récupérer le profil utilisateur avec une requête simple
+      // Now fetch the user profile
       const { data: userProfile, error } = await supabase
         .from('users')
         .select('*')
@@ -139,7 +145,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           processingAuth.current = false;
         }, 10000);
 
-        // Récupérer la session actuelle
+        // Get current session
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
         clearTimeout(timeoutId);
@@ -168,17 +174,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     initializeAuth();
 
-    // Écouter les changements d'état d'authentification
+    // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('📡 Auth state change:', event, 'Session:', session?.user?.email || 'None');
       
-      // Éviter le traitement pendant l'initialisation
+      // Skip processing during initialization
       if (!initialized && event !== 'SIGNED_IN') {
         console.log('⚠️ Skipping auth state change during initialization');
         return;
       }
 
-      // Éviter le traitement concurrent
+      // Prevent concurrent processing
       if (processingAuth.current) {
         console.log('⚠️ Auth processing in progress, skipping state change');
         return;
@@ -231,7 +237,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       console.log('✅ Login successful for:', data.user.email);
       
-      // Récupérer immédiatement le profil utilisateur
+      // Fetch user profile immediately after successful login
       const userProfile = await fetchUserProfile(data.user);
       setUser(userProfile);
       

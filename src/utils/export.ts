@@ -61,36 +61,35 @@ export function generatePDF(interventions: Intervention[], selectedUser?: User |
   
   let currentY = 20;
   
-  // Ajouter le logo IRT en haut à gauche
+  // Add IRT logo at top left
   try {
-    // Simuler un logo avec du texte stylisé
     doc.setFontSize(24);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(79, 70, 229); // Couleur primaire
+    doc.setTextColor(79, 70, 229); // Primary color
     doc.text('IRT', 14, currentY);
     
-    // Ligne décorative sous le logo
+    // Decorative line under logo
     doc.setDrawColor(79, 70, 229);
     doc.setLineWidth(2);
     doc.line(14, currentY + 3, 35, currentY + 3);
   } catch (error) {
-    console.warn('Logo non ajouté:', error);
+    console.warn('Logo not added:', error);
   }
   
-  // Titre du document
+  // Document title
   currentY += 15;
   doc.setFontSize(20);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(0, 0, 0);
   doc.text('Rapport des Interventions', 14, currentY);
   
-  // Informations de génération
+  // Generation info
   currentY += 15;
   doc.setFontSize(12);
   doc.setFont('helvetica', 'normal');
   doc.text(`Généré le ${format(new Date(), 'dd/MM/yyyy HH:mm', { locale: fr })}`, 14, currentY);
   
-  // Informations utilisateur sélectionné
+  // Selected user info
   if (selectedUser) {
     currentY += 10;
     doc.setFont('helvetica', 'bold');
@@ -101,7 +100,7 @@ export function generatePDF(interventions: Intervention[], selectedUser?: User |
     doc.text(`Email : ${selectedUser.email}`, 14, currentY);
     
     currentY += 7;
-    doc.text(`Rôle : ${selectedUser.role}`, 14, currentY);
+    doc.text(`Rôle : ${getRoleDisplayName(selectedUser.role)}`, 14, currentY);
     
     if (selectedUser.role === 'auto-entrepreneur') {
       if (selectedUser.siren) {
@@ -115,21 +114,21 @@ export function generatePDF(interventions: Intervention[], selectedUser?: User |
     }
   }
   
-  // Informations de l'entreprise IRT
+  // Company info
   currentY += 15;
   doc.setFontSize(10);
   doc.setTextColor(100, 100, 100);
   doc.text('IRT - 5 rue Fénelon, 33000 BORDEAUX', 14, currentY);
   
-  // Ligne de séparation
+  // Separator line
   currentY += 10;
   doc.setDrawColor(200, 200, 200);
   doc.line(14, currentY, 196, currentY);
   
-  // Préparer les données du tableau
+  // Prepare table data
   const headers = selectedUser 
     ? [['Date', 'ND', 'Opérateur', 'Service', 'Prix', 'Statut']]
-    : [['Date', 'ND', 'Opérateur', 'Service', 'Prix', 'Statut', 'Utilisateur', 'SIREN', 'Adresse']];
+    : [['Date', 'ND', 'Opérateur', 'Service', 'Prix', 'Statut', 'Utilisateur', 'Rôle', 'SIREN']];
   
   const data = interventions.map(intervention => {
     const user = selectedUser || allUsers?.find(u => u.id === intervention.userId);
@@ -149,16 +148,16 @@ export function generatePDF(interventions: Intervention[], selectedUser?: User |
       return [
         ...baseRow,
         user?.name || 'Utilisateur inconnu',
-        user?.role === 'auto-entrepreneur' ? user?.siren || '' : '',
-        user?.role === 'auto-entrepreneur' ? user?.address || '' : ''
+        user ? getRoleDisplayName(user.role) : '',
+        user?.role === 'auto-entrepreneur' ? user?.siren || '' : ''
       ];
     }
   });
   
-  // Position de départ du tableau
+  // Table start position
   const tableStartY = currentY + 10;
   
-  // Ajouter le tableau
+  // Add table
   (doc as any).autoTable({
     head: headers,
     body: data,
@@ -176,14 +175,14 @@ export function generatePDF(interventions: Intervention[], selectedUser?: User |
       fillColor: [248, 249, 250]
     },
     columnStyles: selectedUser ? {} : {
-      6: { cellWidth: 25 }, // Utilisateur column
-      7: { cellWidth: 20 }, // SIREN column
-      8: { cellWidth: 30 }  // Adresse column
+      6: { cellWidth: 25 }, // User column
+      7: { cellWidth: 20 }, // Role column
+      8: { cellWidth: 20 }  // SIREN column
     },
     margin: { left: 14, right: 14 }
   });
   
-  // Ajouter le résumé
+  // Add summary
   const totalAmount = interventions.reduce((sum, item) => sum + item.price, 0);
   const successCount = interventions.filter(i => i.status === 'success').length;
   const totalCount = interventions.length;
@@ -191,18 +190,18 @@ export function generatePDF(interventions: Intervention[], selectedUser?: User |
   
   const finalY = (doc as any).lastAutoTable.finalY || 150;
   
-  // Cadre pour le résumé
+  // Summary box
   doc.setDrawColor(79, 70, 229);
   doc.setFillColor(248, 249, 250);
   doc.rect(14, finalY + 10, 182, 35, 'FD');
   
-  // Titre du résumé
+  // Summary title
   doc.setFontSize(12);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(79, 70, 229);
   doc.text('Résumé des interventions', 20, finalY + 20);
   
-  // Données du résumé
+  // Summary data
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(0, 0, 0);
@@ -210,14 +209,14 @@ export function generatePDF(interventions: Intervention[], selectedUser?: User |
   doc.text(`Montant total : ${totalAmount}€`, 20, finalY + 35);
   doc.text(`Taux de succès : ${successRate}%`, 20, finalY + 42);
   
-  // Pied de page avec logo IRT
+  // Footer with IRT logo
   const pageHeight = doc.internal.pageSize.height;
   doc.setFontSize(8);
   doc.setTextColor(150, 150, 150);
   doc.text('Document généré automatiquement par IRT', 14, pageHeight - 10);
   doc.text(`Page 1`, 196 - 20, pageHeight - 10);
   
-  // Logo IRT en bas à droite (petit)
+  // Small IRT logo in bottom right
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(79, 70, 229);
@@ -228,4 +227,17 @@ export function generatePDF(interventions: Intervention[], selectedUser?: User |
 
 export function downloadPDF(doc: jsPDF, filename: string) {
   doc.save(filename);
+}
+
+function getRoleDisplayName(role: string): string {
+  switch (role) {
+    case 'admin':
+      return 'Administrateur';
+    case 'auto-entrepreneur':
+      return 'Auto-Entrepreneur';
+    case 'employee':
+      return 'Employé';
+    default:
+      return role;
+  }
 }
