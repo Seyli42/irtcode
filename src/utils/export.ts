@@ -5,7 +5,7 @@ import { fr } from 'date-fns/locale';
 import { Intervention, User } from '../types';
 import { PROVIDERS, SERVICE_TYPES } from '../constants/pricing';
 
-export function generateCSV(interventions: Intervention[], selectedUser?: User | null): string {
+export function generateCSV(interventions: Intervention[], selectedUser?: User | null, allUsers?: User[]): string {
   const headers = [
     'Date',
     'Heure',
@@ -14,10 +14,16 @@ export function generateCSV(interventions: Intervention[], selectedUser?: User |
     'Type de service',
     'Prix',
     'Statut',
-    selectedUser ? '' : 'Utilisateur'
+    selectedUser ? '' : 'Utilisateur',
+    selectedUser ? '' : 'Email',
+    selectedUser ? '' : 'Rôle',
+    selectedUser ? '' : 'SIREN',
+    selectedUser ? '' : 'Adresse'
   ].filter(Boolean);
 
   const rows = interventions.map(intervention => {
+    const user = selectedUser || allUsers?.find(u => u.id === intervention.userId);
+    
     const row = [
       format(new Date(intervention.date), 'dd/MM/yyyy', { locale: fr }),
       intervention.time,
@@ -26,7 +32,11 @@ export function generateCSV(interventions: Intervention[], selectedUser?: User |
       SERVICE_TYPES.find(s => s.id === intervention.serviceType)?.label || intervention.serviceType,
       `${intervention.price}€`,
       intervention.status === 'success' ? 'Succès' : 'Échec',
-      selectedUser ? '' : intervention.userName
+      selectedUser ? '' : user?.name || 'Utilisateur inconnu',
+      selectedUser ? '' : user?.email || '',
+      selectedUser ? '' : user?.role || '',
+      selectedUser ? '' : (user?.role === 'auto-entrepreneur' ? user?.siren || '' : ''),
+      selectedUser ? '' : (user?.role === 'auto-entrepreneur' ? user?.address || '' : '')
     ].filter(Boolean);
     return row.join(',');
   });
@@ -43,7 +53,7 @@ export function downloadCSV(content: string, filename: string) {
   URL.revokeObjectURL(link.href);
 }
 
-export function generatePDF(interventions: Intervention[], selectedUser?: User | null) {
+export function generatePDF(interventions: Intervention[], selectedUser?: User | null, allUsers?: User[]) {
   const doc = new jsPDF();
   
   // Add title
@@ -56,30 +66,66 @@ export function generatePDF(interventions: Intervention[], selectedUser?: User |
   
   if (selectedUser) {
     doc.text(`Utilisateur : ${selectedUser.name}`, 14, 40);
+    if (selectedUser.role === 'auto-entrepreneur') {
+      let yPos = 45;
+      if (selectedUser.siren) {
+        doc.text(`SIREN : ${selectedUser.siren}`, 14, yPos);
+        yPos += 5;
+      }
+      if (selectedUser.address) {
+        doc.text(`Adresse : ${selectedUser.address}`, 14, yPos);
+        yPos += 5;
+      }
+    }
   }
   
   // Prepare table data
-  const headers = [
-    ['Date', 'ND', 'Opérateur', 'Service', 'Prix', 'Statut', selectedUser ? '' : 'Utilisateur'].filter(Boolean)
-  ];
+  const headers = selectedUser 
+    ? [['Date', 'ND', 'Opérateur', 'Service', 'Prix', 'Statut']]
+    : [['Date', 'ND', 'Opérateur', 'Service', 'Prix', 'Statut', 'Utilisateur', 'SIREN', 'Adresse']];
   
-  const data = interventions.map(intervention => [
-    format(new Date(intervention.date), 'dd/MM/yyyy', { locale: fr }),
-    intervention.ndNumber,
-    PROVIDERS.find(p => p.id === intervention.provider)?.label || intervention.provider,
-    SERVICE_TYPES.find(s => s.id === intervention.serviceType)?.label || intervention.serviceType,
-    `${intervention.price}€`,
-    intervention.status === 'success' ? 'Succès' : 'Échec',
-    selectedUser ? '' : intervention.userName
-  ].filter(Boolean));
+  const data = interventions.map(intervention => {
+    const user = selectedUser || allUsers?.find(u => u.id === intervention.userId);
+    
+    const baseRow = [
+      format(new Date(intervention.date), 'dd/MM/yyyy', { locale: fr }),
+      intervention.ndNumber,
+      PROVIDERS.find(p => p.id === intervention.provider)?.label || intervention.provider,
+      SERVICE_TYPES.find(s => s.id === intervention.serviceType)?.label || intervention.serviceType,
+      `${intervention.price}€`,
+      intervention.status === 'success' ? 'Succès' : 'Échec'
+    ];
+
+    if (selectedUser) {
+      return baseRow;
+    } else {
+      return [
+        ...baseRow,
+        user?.name || 'Utilisateur inconnu',
+        user?.role === 'auto-entrepreneur' ? user?.siren || '' : '',
+        user?.role === 'auto-entrepreneur' ? user?.address || '' : ''
+      ];
+    }
+  });
+  
+  // Calculate start position based on user info
+  let startY = selectedUser ? 45 : 35;
+  if (selectedUser?.role === 'auto-entrepreneur') {
+    if (selectedUser.siren) startY += 5;
+    if (selectedUser.address) startY += 5;
+  }
   
   // Add table
   (doc as any).autoTable({
     head: headers,
     body: data,
-    startY: selectedUser ? 45 : 35,
+    startY: startY,
     styles: { fontSize: 8 },
     headStyles: { fillColor: [79, 70, 229] },
+    columnStyles: selectedUser ? {} : {
+      7: { cellWidth: 20 }, // SIREN column
+      8: { cellWidth: 30 }  // Adresse column
+    }
   });
   
   // Add summary

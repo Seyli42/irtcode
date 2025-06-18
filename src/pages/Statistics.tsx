@@ -94,14 +94,14 @@ const Statistics: React.FC = () => {
   const filteredInterventions = getFilteredInterventions();
   
   const handleExportCSV = () => {
-    const csv = generateCSV(filteredInterventions, selectedUser);
+    const csv = generateCSV(filteredInterventions, selectedUser, users);
     const filename = `interventions_${period}_${new Date().toISOString().split('T')[0]}.csv`;
     downloadCSV(csv, filename);
     setShowExportMenu(false);
   };
   
   const handleExportPDF = () => {
-    const doc = generatePDF(filteredInterventions, selectedUser);
+    const doc = generatePDF(filteredInterventions, selectedUser, users);
     const filename = `interventions_${period}_${new Date().toISOString().split('T')[0]}.pdf`;
     downloadPDF(doc, filename);
     setShowExportMenu(false);
