@@ -132,6 +132,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: userProfile.email,
         name: userProfile.name,
         role: userProfile.role as UserRole,
+        siren: userProfile.siren || undefined,
+        address: userProfile.address || undefined,
         createdAt: new Date(userProfile.created_at),
       };
 

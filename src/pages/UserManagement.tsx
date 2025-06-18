@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
-import { Plus, Trash, Edit, Loader2, User, Users, Search, CheckCircle, Save, X } from 'lucide-react';
+import { Plus, Trash, Edit, Loader2, User, Users, Search, CheckCircle, Save, X, Building, MapPin } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
+import InputField from '../components/form/InputField';
+import SelectField from '../components/form/SelectField';
 import { User as UserType, UserRole } from '../types';
 
 interface UserFormData {
@@ -12,6 +14,8 @@ interface UserFormData {
   name: string;
   role: UserRole;
   password: string;
+  siren: string;
+  address: string;
 }
 
 const UserManagement: React.FC = () => {
@@ -25,6 +29,8 @@ const UserManagement: React.FC = () => {
     name: '',
     role: 'employee',
     password: '',
+    siren: '',
+    address: '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -58,6 +64,8 @@ const UserManagement: React.FC = () => {
         email: user.email,
         name: user.name,
         role: user.role as UserRole,
+        siren: user.siren || undefined,
+        address: user.address || undefined,
         createdAt: new Date(user.created_at)
       }));
 
@@ -95,6 +103,38 @@ const UserManagement: React.FC = () => {
       return false;
     }
   };
+
+  const checkSirenExists = async (siren: string, excludeUserId?: string): Promise<boolean> => {
+    if (!siren.trim()) return false;
+    
+    try {
+      let query = supabase
+        .from('users')
+        .select('id')
+        .eq('siren', siren.trim());
+      
+      if (excludeUserId) {
+        query = query.neq('id', excludeUserId);
+      }
+      
+      const { data, error } = await query;
+      
+      if (error) {
+        console.error('Error checking SIREN:', error);
+        return false;
+      }
+      
+      return data && data.length > 0;
+    } catch (error) {
+      console.error('Error checking SIREN existence:', error);
+      return false;
+    }
+  };
+
+  const validateSiren = (siren: string): boolean => {
+    if (!siren.trim()) return true; // SIREN is optional
+    return /^[0-9]{9}$/.test(siren.trim());
+  };
   
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,10 +143,21 @@ const UserManagement: React.FC = () => {
     setSuccessMessage(null);
     
     try {
-      // Check if email already exists
+      // Validation
       const emailExists = await checkEmailExists(formData.email);
       if (emailExists) {
         throw new Error('Cette adresse email est déjà utilisée. Veuillez choisir une autre adresse.');
+      }
+
+      if (formData.siren && !validateSiren(formData.siren)) {
+        throw new Error('Le numéro SIREN doit contenir exactement 9 chiffres.');
+      }
+
+      if (formData.siren) {
+        const sirenExists = await checkSirenExists(formData.siren);
+        if (sirenExists) {
+          throw new Error('Ce numéro SIREN est déjà utilisé. Veuillez vérifier le numéro saisi.');
+        }
       }
 
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
@@ -115,7 +166,9 @@ const UserManagement: React.FC = () => {
         options: {
           data: {
             name: formData.name,
-            role: formData.role
+            role: formData.role,
+            siren: formData.siren.trim() || null,
+            address: formData.address.trim() || null
           }
         }
       });
@@ -129,19 +182,18 @@ const UserManagement: React.FC = () => {
       
       if (!authData.user) throw new Error('Échec de la création du compte');
 
-      // Remove the manual insert - AuthContext will handle user synchronization automatically
-      
       setShowForm(false);
       setFormData({
         email: '',
         name: '',
         role: 'employee',
         password: '',
+        siren: '',
+        address: '',
       });
       
       setSuccessMessage('Utilisateur créé avec succès');
       
-      // Wait a moment for AuthContext to sync the user, then reload
       setTimeout(async () => {
         await loadUsers();
       }, 1000);
@@ -167,11 +219,22 @@ const UserManagement: React.FC = () => {
     setSuccessMessage(null);
     
     try {
-      // Check if email already exists (excluding current user)
+      // Validation
       if (formData.email !== editingUser.email) {
         const emailExists = await checkEmailExists(formData.email, editingUser.id);
         if (emailExists) {
           throw new Error('Cette adresse email est déjà utilisée. Veuillez choisir une autre adresse.');
+        }
+      }
+
+      if (formData.siren && !validateSiren(formData.siren)) {
+        throw new Error('Le numéro SIREN doit contenir exactement 9 chiffres.');
+      }
+
+      if (formData.siren && formData.siren !== editingUser.siren) {
+        const sirenExists = await checkSirenExists(formData.siren, editingUser.id);
+        if (sirenExists) {
+          throw new Error('Ce numéro SIREN est déjà utilisé. Veuillez vérifier le numéro saisi.');
         }
       }
 
@@ -180,13 +243,19 @@ const UserManagement: React.FC = () => {
         .update({
           email: formData.email.trim().toLowerCase(),
           name: formData.name,
-          role: formData.role
+          role: formData.role,
+          siren: formData.siren.trim() || null,
+          address: formData.address.trim() || null
         })
         .eq('id', editingUser.id);
 
       if (updateError) {
         if (updateError.code === '23505') {
-          throw new Error('Cette adresse email est déjà utilisée. Veuillez choisir une autre adresse.');
+          if (updateError.message.includes('users_email_key')) {
+            throw new Error('Cette adresse email est déjà utilisée. Veuillez choisir une autre adresse.');
+          } else if (updateError.message.includes('users_siren_unique')) {
+            throw new Error('Ce numéro SIREN est déjà utilisé. Veuillez vérifier le numéro saisi.');
+          }
         }
         throw updateError;
       }
@@ -197,6 +266,8 @@ const UserManagement: React.FC = () => {
         name: '',
         role: 'employee',
         password: '',
+        siren: '',
+        address: '',
       });
       
       setSuccessMessage('Utilisateur modifié avec succès');
@@ -226,9 +297,6 @@ const UserManagement: React.FC = () => {
       
       if (deleteError) throw deleteError;
 
-      // Note: User will be removed from the application's user list.
-      // Complete deletion from Supabase Auth would require a backend function with service role privileges.
-
       await loadUsers();
       setSuccessMessage('Utilisateur supprimé avec succès');
       
@@ -247,9 +315,11 @@ const UserManagement: React.FC = () => {
       email: user.email,
       name: user.name,
       role: user.role,
-      password: '', // Don't pre-fill password
+      password: '',
+      siren: user.siren || '',
+      address: user.address || '',
     });
-    setShowForm(false); // Close add form if open
+    setShowForm(false);
   };
 
   const cancelEdit = () => {
@@ -259,6 +329,8 @@ const UserManagement: React.FC = () => {
       name: '',
       role: 'employee',
       password: '',
+      siren: '',
+      address: '',
     });
   };
   
@@ -268,7 +340,8 @@ const UserManagement: React.FC = () => {
   
   const filteredUsers = users.filter(user => 
     user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchQuery.toLowerCase())
+    user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (user.siren && user.siren.includes(searchQuery))
   );
   
   const getRoleBadgeClass = (role: UserRole) => {
@@ -300,6 +373,12 @@ const UserManagement: React.FC = () => {
   const canEditUser = (user: UserType) => {
     return currentUser?.role === 'admin' || currentUser?.id === user.id;
   };
+
+  const roleOptions = [
+    { value: 'admin', label: 'Administrateur' },
+    { value: 'auto-entrepreneur', label: 'Auto-Entrepreneur' },
+    { value: 'employee', label: 'Employé' },
+  ];
   
   return (
     <div className="py-6">
@@ -345,57 +424,63 @@ const UserManagement: React.FC = () => {
             </div>
             
             <form onSubmit={handleAddUser} className="space-y-4">
-              <div>
-                <label htmlFor="name" className="form-label">Nom complet</label>
-                <input
-                  type="text"
-                  id="name"
-                  className="form-input"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  required
-                />
-              </div>
+              <InputField
+                label="Nom complet"
+                type="text"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                required
+              />
               
-              <div>
-                <label htmlFor="email" className="form-label">Email</label>
-                <input
-                  type="email"
-                  id="email"
-                  className="form-input"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  required
-                />
-              </div>
+              <InputField
+                label="Email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                required
+              />
               
-              <div>
-                <label htmlFor="password" className="form-label">Mot de passe</label>
-                <input
-                  type="password"
-                  id="password"
-                  className="form-input"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  required
-                  minLength={8}
-                />
-              </div>
+              <InputField
+                label="Mot de passe"
+                type="password"
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                required
+                helper="Minimum 8 caractères"
+              />
               
-              <div>
-                <label htmlFor="role" className="form-label">Rôle</label>
-                <select
-                  id="role"
-                  className="form-select"
-                  value={formData.role}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })}
-                  required
-                >
-                  <option value="admin">Administrateur</option>
-                  <option value="auto-entrepreneur">Auto-Entrepreneur</option>
-                  <option value="employee">Employé</option>
-                </select>
-              </div>
+              <SelectField
+                label="Rôle"
+                value={formData.role}
+                onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })}
+                options={roleOptions}
+                required
+              />
+
+              {formData.role === 'auto-entrepreneur' && (
+                <>
+                  <InputField
+                    label="Numéro SIREN"
+                    type="text"
+                    value={formData.siren}
+                    onChange={(e) => setFormData({ ...formData, siren: e.target.value })}
+                    placeholder="123456789"
+                    icon={<Building size={18} />}
+                    helper="9 chiffres exactement (optionnel)"
+                    maxLength={9}
+                  />
+                  
+                  <InputField
+                    label="Adresse"
+                    type="text"
+                    value={formData.address}
+                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                    placeholder="123 rue de la République, 75001 Paris"
+                    icon={<MapPin size={18} />}
+                    helper="Adresse complète (optionnel)"
+                  />
+                </>
+              )}
               
               <div className="flex space-x-3 pt-2">
                 <Button
@@ -432,45 +517,55 @@ const UserManagement: React.FC = () => {
             </div>
             
             <form onSubmit={handleEditUser} className="space-y-4">
-              <div>
-                <label htmlFor="edit-name" className="form-label">Nom complet</label>
-                <input
-                  type="text"
-                  id="edit-name"
-                  className="form-input"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  required
-                />
-              </div>
+              <InputField
+                label="Nom complet"
+                type="text"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                required
+              />
               
-              <div>
-                <label htmlFor="edit-email" className="form-label">Email</label>
-                <input
-                  type="email"
-                  id="edit-email"
-                  className="form-input"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  required
-                />
-              </div>
+              <InputField
+                label="Email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                required
+              />
               
               {currentUser?.role === 'admin' && (
-                <div>
-                  <label htmlFor="edit-role" className="form-label">Rôle</label>
-                  <select
-                    id="edit-role"
-                    className="form-select"
-                    value={formData.role}
-                    onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })}
-                    required
-                  >
-                    <option value="admin">Administrateur</option>
-                    <option value="auto-entrepreneur">Auto-Entrepreneur</option>
-                    <option value="employee">Employé</option>
-                  </select>
-                </div>
+                <SelectField
+                  label="Rôle"
+                  value={formData.role}
+                  onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })}
+                  options={roleOptions}
+                  required
+                />
+              )}
+
+              {formData.role === 'auto-entrepreneur' && (
+                <>
+                  <InputField
+                    label="Numéro SIREN"
+                    type="text"
+                    value={formData.siren}
+                    onChange={(e) => setFormData({ ...formData, siren: e.target.value })}
+                    placeholder="123456789"
+                    icon={<Building size={18} />}
+                    helper="9 chiffres exactement (optionnel)"
+                    maxLength={9}
+                  />
+                  
+                  <InputField
+                    label="Adresse"
+                    type="text"
+                    value={formData.address}
+                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                    placeholder="123 rue de la République, 75001 Paris"
+                    icon={<MapPin size={18} />}
+                    helper="Adresse complète (optionnel)"
+                  />
+                </>
               )}
               
               <div className="flex space-x-3 pt-2">
@@ -520,17 +615,35 @@ const UserManagement: React.FC = () => {
             {filteredUsers.map(user => (
               <div key={user.id} className="py-4 first:pt-0 last:pb-0">
                 <div className="flex items-start justify-between">
-                  <div>
+                  <div className="flex-1">
                     <div className="font-medium text-base">{user.name}</div>
                     <div className="text-gray-600 dark:text-gray-400 text-sm">{user.email}</div>
-                    <div className="mt-1">
+                    
+                    {user.role === 'auto-entrepreneur' && (user.siren || user.address) && (
+                      <div className="mt-2 space-y-1">
+                        {user.siren && (
+                          <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+                            <Building size={14} className="mr-1.5" />
+                            <span>SIREN: {user.siren}</span>
+                          </div>
+                        )}
+                        {user.address && (
+                          <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+                            <MapPin size={14} className="mr-1.5" />
+                            <span>{user.address}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    <div className="mt-2">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getRoleBadgeClass(user.role)}`}>
                         {getRoleLabel(user.role)}
                       </span>
                     </div>
                   </div>
                   
-                  <div className="flex space-x-2">
+                  <div className="flex space-x-2 ml-4">
                     {canEditUser(user) && (
                       <Button
                         variant="ghost"

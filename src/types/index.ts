@@ -5,6 +5,8 @@ export type User = {
   email: string;
   name: string;
   role: UserRole;
+  siren?: string;
+  address?: string;
   createdAt: Date;
 };
 
