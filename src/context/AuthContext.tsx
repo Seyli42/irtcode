@@ -31,29 +31,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const userSiren = supabaseUser.user_metadata?.siren || null;
       const userAddress = supabaseUser.user_metadata?.address || null;
       
-      // Simple upsert without complex logic
-      const { error: upsertError } = await supabase
+      // Vérifier si l'utilisateur existe déjà
+      const { data: existingUser, error: checkError } = await supabase
         .from('users')
-        .upsert({
+        .select('*')
+        .eq('id', supabaseUser.id)
+        .single();
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        console.error('❌ Error checking existing user:', checkError);
+        return;
+      }
+
+      if (existingUser) {
+        console.log('✅ User already exists in database');
+        return;
+      }
+
+      // Créer l'utilisateur s'il n'existe pas
+      const { error: insertError } = await supabase
+        .from('users')
+        .insert({
           id: supabaseUser.id,
           email: userEmail,
           name: userName,
           role: userRole,
           siren: userSiren,
           address: userAddress,
-        }, {
-          onConflict: 'id'
         });
 
-      if (upsertError) {
-        console.error('❌ Failed to sync user:', upsertError);
+      if (insertError) {
+        console.error('❌ Failed to create user in database:', insertError);
         return;
       }
       
-      console.log('✅ User synced successfully');
+      console.log('✅ User created successfully in database');
     } catch (error) {
       console.error('❌ Exception in syncUserWithPublicTable:', error);
-      // Don't throw - allow auth flow to continue
     }
   };
 
@@ -61,10 +75,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log('📋 Fetching user profile for:', supabaseUser.email);
     
     try {
-      // Ensure user exists in public table first
+      // Assurer que l'utilisateur existe dans la table publique
       await syncUserWithPublicTable(supabaseUser);
       
-      // Fetch user profile using simple select
+      // Récupérer le profil utilisateur
       const { data: userProfile, error } = await supabase
         .from('users')
         .select('*')
@@ -117,64 +131,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.log('🔍 Initializing authentication...');
       
       try {
-        // Set a timeout to prevent infinite loading
+        // Timeout de sécurité
         const timeoutId = setTimeout(() => {
           console.warn('⚠️ Auth initialization timeout - proceeding without auth');
           setLoading(false);
           setInitialized(true);
           processingAuth.current = false;
-        }, 10000); // 10 second timeout
+        }, 10000);
 
-        // Use getUser() instead of getSession() to avoid refresh token issues
-        const { data: { user: supabaseUser }, error } = await supabase.auth.getUser();
+        // Récupérer la session actuelle
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
         clearTimeout(timeoutId);
         
-        if (error) {
-          // Check if this is an expected auth state (missing/invalid session)
-          const isExpectedAuthState = error.message && (
-            error.message.includes('refresh_token_not_found') ||
-            error.message.includes('Invalid Refresh Token') ||
-            error.message.includes('Auth session missing')
-          );
-          
-          if (isExpectedAuthState) {
-            console.warn('⚠️ Expected auth state:', error.message);
-          } else {
-            console.error('❌ Auth error:', error);
-          }
-          
-          // Clear any invalid session
-          if (isExpectedAuthState) {
-            console.log('🧹 Invalid session detected, clearing...');
-            try {
-              await supabase.auth.signOut();
-              console.log('✅ Invalid session cleared');
-            } catch (signOutError) {
-              console.error('❌ Error clearing invalid session:', signOutError);
-            }
-          }
-          
+        if (sessionError) {
+          console.error('❌ Session error:', sessionError);
           setUser(null);
-        } else if (supabaseUser) {
-          console.log('✅ User found:', supabaseUser.email);
-          const userProfile = await fetchUserProfile(supabaseUser);
+        } else if (session?.user) {
+          console.log('✅ Active session found for:', session.user.email);
+          const userProfile = await fetchUserProfile(session.user);
           setUser(userProfile);
         } else {
-          console.log('ℹ️ No active user found');
+          console.log('ℹ️ No active session found');
           setUser(null);
         }
       } catch (error) {
         console.error('❌ Error initializing auth:', error);
-        
-        // Handle any auth-related errors by clearing session
-        try {
-          await supabase.auth.signOut();
-          console.log('✅ Session cleared after error');
-        } catch (signOutError) {
-          console.error('❌ Error clearing session:', signOutError);
-        }
-        
         setUser(null);
       } finally {
         console.log('✅ Auth initialization complete');
@@ -186,16 +168,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     initializeAuth();
 
+    // Écouter les changements d'état d'authentification
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('📡 Auth state change:', event, 'Processing:', processingAuth.current);
+      console.log('📡 Auth state change:', event, 'Session:', session?.user?.email || 'None');
       
-      // Prevent processing during initial load
+      // Éviter le traitement pendant l'initialisation
       if (!initialized && event !== 'SIGNED_IN') {
         console.log('⚠️ Skipping auth state change during initialization');
         return;
       }
 
-      // Prevent concurrent processing
+      // Éviter le traitement concurrent
       if (processingAuth.current) {
         console.log('⚠️ Auth processing in progress, skipping state change');
         return;
@@ -248,13 +231,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       console.log('✅ Login successful for:', data.user.email);
       
-      // Don't manually set user here - let the auth state change handler do it
-      // This prevents race conditions and duplicate processing
+      // Récupérer immédiatement le profil utilisateur
+      const userProfile = await fetchUserProfile(data.user);
+      setUser(userProfile);
       
     } catch (error: any) {
       console.error('❌ Login failed:', error);
       setLoading(false);
       throw error;
+    } finally {
+      setLoading(false);
     }
   };
 

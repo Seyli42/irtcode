@@ -61,10 +61,28 @@ export function generatePDF(interventions: Intervention[], selectedUser?: User |
   
   let currentY = 20;
   
-  // Ajouter le titre
+  // Ajouter le logo IRT en haut à gauche
+  try {
+    // Simuler un logo avec du texte stylisé
+    doc.setFontSize(24);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(79, 70, 229); // Couleur primaire
+    doc.text('IRT', 14, currentY);
+    
+    // Ligne décorative sous le logo
+    doc.setDrawColor(79, 70, 229);
+    doc.setLineWidth(2);
+    doc.line(14, currentY + 3, 35, currentY + 3);
+  } catch (error) {
+    console.warn('Logo non ajouté:', error);
+  }
+  
+  // Titre du document
+  currentY += 15;
   doc.setFontSize(20);
   doc.setFont('helvetica', 'bold');
-  doc.text('IRT - Rapport des Interventions', 14, currentY);
+  doc.setTextColor(0, 0, 0);
+  doc.text('Rapport des Interventions', 14, currentY);
   
   // Informations de génération
   currentY += 15;
@@ -78,6 +96,12 @@ export function generatePDF(interventions: Intervention[], selectedUser?: User |
     doc.setFont('helvetica', 'bold');
     doc.text(`Utilisateur : ${selectedUser.name}`, 14, currentY);
     doc.setFont('helvetica', 'normal');
+    
+    currentY += 7;
+    doc.text(`Email : ${selectedUser.email}`, 14, currentY);
+    
+    currentY += 7;
+    doc.text(`Rôle : ${selectedUser.role}`, 14, currentY);
     
     if (selectedUser.role === 'auto-entrepreneur') {
       if (selectedUser.siren) {
@@ -186,12 +210,18 @@ export function generatePDF(interventions: Intervention[], selectedUser?: User |
   doc.text(`Montant total : ${totalAmount}€`, 20, finalY + 35);
   doc.text(`Taux de succès : ${successRate}%`, 20, finalY + 42);
   
-  // Pied de page
+  // Pied de page avec logo IRT
   const pageHeight = doc.internal.pageSize.height;
   doc.setFontSize(8);
   doc.setTextColor(150, 150, 150);
   doc.text('Document généré automatiquement par IRT', 14, pageHeight - 10);
   doc.text(`Page 1`, 196 - 20, pageHeight - 10);
+  
+  // Logo IRT en bas à droite (petit)
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(79, 70, 229);
+  doc.text('IRT', 196 - 30, pageHeight - 10);
   
   return doc;
 }
