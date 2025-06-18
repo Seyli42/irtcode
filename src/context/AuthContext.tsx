@@ -31,7 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const userSiren = supabaseUser.user_metadata?.siren || null;
       const userAddress = supabaseUser.user_metadata?.address || null;
       
-      // Try to upsert the user (insert or update if exists)
+      // Simple upsert without complex logic
       const { error: upsertError } = await supabase
         .from('users')
         .upsert({
@@ -125,16 +125,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           processingAuth.current = false;
         }, 10000); // 10 second timeout
 
-        const { data: { session }, error } = await supabase.auth.getSession();
+        // Use getUser() instead of getSession() to avoid refresh token issues
+        const { data: { user: supabaseUser }, error } = await supabase.auth.getUser();
         
         clearTimeout(timeoutId);
         
         if (error) {
-          console.error('❌ Session error:', error);
+          console.error('❌ Auth error:', error);
           
-          // Check if the error is related to invalid refresh token
-          if (error.message && error.message.includes('refresh_token_not_found')) {
-            console.log('🧹 Invalid refresh token detected, clearing session...');
+          // Clear any invalid session
+          if (error.message && (
+            error.message.includes('refresh_token_not_found') ||
+            error.message.includes('Invalid Refresh Token') ||
+            error.message.includes('Auth session missing')
+          )) {
+            console.log('🧹 Invalid session detected, clearing...');
             try {
               await supabase.auth.signOut();
               console.log('✅ Invalid session cleared');
@@ -144,26 +149,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
           
           setUser(null);
-        } else if (session?.user) {
-          console.log('✅ Session found for:', session.user.email);
-          const userProfile = await fetchUserProfile(session.user);
+        } else if (supabaseUser) {
+          console.log('✅ User found:', supabaseUser.email);
+          const userProfile = await fetchUserProfile(supabaseUser);
           setUser(userProfile);
         } else {
-          console.log('ℹ️ No active session found');
+          console.log('ℹ️ No active user found');
           setUser(null);
         }
       } catch (error) {
         console.error('❌ Error initializing auth:', error);
         
-        // Check if the caught error is related to invalid refresh token
-        if (error instanceof Error && error.message.includes('refresh_token_not_found')) {
-          console.log('🧹 Invalid refresh token detected in catch block, clearing session...');
-          try {
-            await supabase.auth.signOut();
-            console.log('✅ Invalid session cleared');
-          } catch (signOutError) {
-            console.error('❌ Error clearing invalid session:', signOutError);
-          }
+        // Handle any auth-related errors by clearing session
+        try {
+          await supabase.auth.signOut();
+          console.log('✅ Session cleared after error');
+        } catch (signOutError) {
+          console.error('❌ Error clearing session:', signOutError);
         }
         
         setUser(null);
