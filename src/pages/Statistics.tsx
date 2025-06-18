@@ -94,14 +94,27 @@ const Statistics: React.FC = () => {
   const filteredInterventions = getFilteredInterventions();
   
   const handleExportCSV = () => {
-    const csv = generateCSV(filteredInterventions, selectedUser, users);
+    // Pour un utilisateur non-admin, on passe l'utilisateur connecté comme utilisateur sélectionné
+    const exportUser = isAdmin ? selectedUser : user;
+    const allUsers = isAdmin ? users : (user ? [user] : []);
+    
+    console.log('📊 Export CSV - User:', exportUser?.name, 'All users:', allUsers.length);
+    
+    const csv = generateCSV(filteredInterventions, exportUser, allUsers);
     const filename = `interventions_${period}_${new Date().toISOString().split('T')[0]}.csv`;
     downloadCSV(csv, filename);
     setShowExportMenu(false);
   };
   
   const handleExportPDF = () => {
-    const doc = generatePDF(filteredInterventions, selectedUser, users);
+    // Pour un utilisateur non-admin, on passe l'utilisateur connecté comme utilisateur sélectionné
+    const exportUser = isAdmin ? selectedUser : user;
+    const allUsers = isAdmin ? users : (user ? [user] : []);
+    
+    console.log('📄 Export PDF - User:', exportUser?.name, 'Email:', exportUser?.email, 'Role:', exportUser?.role);
+    console.log('📄 All users for export:', allUsers.map(u => ({ name: u.name, email: u.email, role: u.role })));
+    
+    const doc = generatePDF(filteredInterventions, exportUser, allUsers);
     const filename = `interventions_${period}_${new Date().toISOString().split('T')[0]}.pdf`;
     downloadPDF(doc, filename);
     setShowExportMenu(false);

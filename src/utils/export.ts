@@ -6,6 +6,8 @@ import { Intervention, User } from '../types';
 import { PROVIDERS, SERVICE_TYPES } from '../constants/pricing';
 
 export function generateCSV(interventions: Intervention[], selectedUser?: User | null, allUsers?: User[]): string {
+  console.log('📊 Generating CSV - Selected user:', selectedUser?.name, 'All users:', allUsers?.length);
+  
   const headers = [
     'Date',
     'Heure',
@@ -57,6 +59,10 @@ export function downloadCSV(content: string, filename: string) {
 }
 
 export function generatePDF(interventions: Intervention[], selectedUser?: User | null, allUsers?: User[]) {
+  console.log('📄 Generating PDF - Selected user:', selectedUser?.name, 'Email:', selectedUser?.email);
+  console.log('📄 Interventions count:', interventions.length);
+  console.log('📄 All users:', allUsers?.map(u => ({ name: u.name, email: u.email, role: u.role })));
+  
   const doc = new jsPDF();
   
   let currentY = 20;
@@ -91,6 +97,8 @@ export function generatePDF(interventions: Intervention[], selectedUser?: User |
   
   // Selected user info
   if (selectedUser) {
+    console.log('📄 Adding user info to PDF:', selectedUser);
+    
     currentY += 10;
     doc.setFont('helvetica', 'bold');
     doc.text(`Utilisateur : ${selectedUser.name}`, 14, currentY);
@@ -132,6 +140,8 @@ export function generatePDF(interventions: Intervention[], selectedUser?: User |
   
   const data = interventions.map(intervention => {
     const user = selectedUser || allUsers?.find(u => u.id === intervention.userId);
+    
+    console.log('📄 Processing intervention:', intervention.ndNumber, 'User found:', user?.name);
     
     const baseRow = [
       format(new Date(intervention.date), 'dd/MM/yyyy', { locale: fr }),
