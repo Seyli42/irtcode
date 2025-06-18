@@ -27,75 +27,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const userEmail = supabaseUser.email || '';
       const userName = supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User';
+      const userRole = supabaseUser.user_metadata?.role || 'employee';
+      const userSiren = supabaseUser.user_metadata?.siren || null;
+      const userAddress = supabaseUser.user_metadata?.address || null;
       
-      // First, try to find existing user by ID
-      const { data: existingUserById } = await supabase
+      // Try to upsert the user (insert or update if exists)
+      const { error: upsertError } = await supabase
         .from('users')
-        .select('*')
-        .eq('id', supabaseUser.id)
-        .single();
-
-      if (existingUserById) {
-        // User exists with this ID, update their info if needed
-        const { error: updateError } = await supabase
-          .from('users')
-          .update({
-            email: userEmail,
-            name: userName,
-          })
-          .eq('id', supabaseUser.id);
-
-        if (updateError) {
-          console.error('❌ Failed to update existing user:', updateError);
-          return;
-        }
-        
-        console.log('✅ Updated existing user by ID');
-        return;
-      }
-
-      // User doesn't exist by ID, check if email exists with different ID
-      const { data: existingUserByEmail } = await supabase
-        .from('users')
-        .select('*')
-        .eq('email', userEmail)
-        .single();
-
-      if (existingUserByEmail) {
-        // Email exists with different ID, update the existing record's ID
-        const { error: updateError } = await supabase
-          .from('users')
-          .update({
-            id: supabaseUser.id,
-            name: userName,
-          })
-          .eq('email', userEmail);
-
-        if (updateError) {
-          console.error('❌ Failed to update user ID for existing email:', updateError);
-          return;
-        }
-        
-        console.log('✅ Updated existing user ID for email:', userEmail);
-        return;
-      }
-
-      // Neither ID nor email exists, create new user
-      const { error: insertError } = await supabase
-        .from('users')
-        .insert({
+        .upsert({
           id: supabaseUser.id,
           email: userEmail,
           name: userName,
-          role: 'employee' // Default role
+          role: userRole,
+          siren: userSiren,
+          address: userAddress,
+        }, {
+          onConflict: 'id'
         });
 
-      if (insertError) {
-        console.error('❌ Failed to insert new user:', insertError);
+      if (upsertError) {
+        console.error('❌ Failed to sync user:', upsertError);
         return;
       }
       
-      console.log('✅ Created new user in public.users table');
+      console.log('✅ User synced successfully');
     } catch (error) {
       console.error('❌ Exception in syncUserWithPublicTable:', error);
       // Don't throw - allow auth flow to continue
@@ -109,23 +64,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Ensure user exists in public table first
       await syncUserWithPublicTable(supabaseUser);
       
-      // Use select without .single() to avoid errors when no rows are returned
-      const { data: userProfiles, error } = await supabase
+      // Fetch user profile using simple select
+      const { data: userProfile, error } = await supabase
         .from('users')
         .select('*')
-        .eq('id', supabaseUser.id);
+        .eq('id', supabaseUser.id)
+        .single();
 
       if (error) {
         console.error('❌ Error fetching user profile:', error);
         return null;
       }
 
-      if (!userProfiles || userProfiles.length === 0) {
+      if (!userProfile) {
         console.error('❌ User profile not found in database');
         return null;
       }
-
-      const userProfile = userProfiles[0];
 
       const user: User = {
         id: userProfile.id,
