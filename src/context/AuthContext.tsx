@@ -21,8 +21,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   console.log('🚀 AuthProvider render - Loading:', loading, 'User:', user?.email || 'None', 'Initialized:', initialized);
 
-  const syncUserWithPublicTable = async (supabaseUser: SupabaseUser): Promise<void> => {
-    console.log('🔄 Starting user sync for:', supabaseUser.email);
+  const createUserProfile = async (supabaseUser: SupabaseUser): Promise<void> => {
+    console.log('🔄 Creating user profile for:', supabaseUser.email);
     
     try {
       const userEmail = supabaseUser.email || '';
@@ -34,11 +34,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Vérifier si l'utilisateur existe déjà
       const { data: existingUser, error: checkError } = await supabase
         .from('users')
-        .select('*')
+        .select('id')
         .eq('id', supabaseUser.id)
-        .single();
+        .maybeSingle();
 
-      if (checkError && checkError.code !== 'PGRST116') {
+      if (checkError) {
         console.error('❌ Error checking existing user:', checkError);
         return;
       }
@@ -65,9 +65,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       
-      console.log('✅ User created successfully in database');
+      console.log('✅ User profile created successfully');
     } catch (error) {
-      console.error('❌ Exception in syncUserWithPublicTable:', error);
+      console.error('❌ Exception in createUserProfile:', error);
     }
   };
 
@@ -75,10 +75,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log('📋 Fetching user profile for:', supabaseUser.email);
     
     try {
-      // Assurer que l'utilisateur existe dans la table publique
-      await syncUserWithPublicTable(supabaseUser);
+      // D'abord, s'assurer que le profil utilisateur existe
+      await createUserProfile(supabaseUser);
       
-      // Récupérer le profil utilisateur
+      // Récupérer le profil utilisateur avec une requête simple
       const { data: userProfile, error } = await supabase
         .from('users')
         .select('*')
