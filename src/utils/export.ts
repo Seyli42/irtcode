@@ -14,34 +14,37 @@ export function generateCSV(interventions: Intervention[], selectedUser?: User |
     'Type de service',
     'Prix',
     'Statut',
-    selectedUser ? '' : 'Utilisateur',
-    selectedUser ? '' : 'Email',
-    selectedUser ? '' : 'Rôle',
-    selectedUser ? '' : 'SIREN',
-    selectedUser ? '' : 'Adresse'
-  ].filter(Boolean);
+    ...(selectedUser ? [] : ['Utilisateur', 'Email', 'Rôle', 'SIREN', 'Adresse'])
+  ];
 
   const rows = interventions.map(intervention => {
     const user = selectedUser || allUsers?.find(u => u.id === intervention.userId);
     
-    const row = [
+    const baseRow = [
       format(new Date(intervention.date), 'dd/MM/yyyy', { locale: fr }),
       intervention.time,
       intervention.ndNumber,
       PROVIDERS.find(p => p.id === intervention.provider)?.label || intervention.provider,
       SERVICE_TYPES.find(s => s.id === intervention.serviceType)?.label || intervention.serviceType,
       `${intervention.price}€`,
-      intervention.status === 'success' ? 'Succès' : 'Échec',
-      selectedUser ? '' : user?.name || 'Utilisateur inconnu',
-      selectedUser ? '' : user?.email || '',
-      selectedUser ? '' : user?.role || '',
-      selectedUser ? '' : (user?.role === 'auto-entrepreneur' ? user?.siren || '' : ''),
-      selectedUser ? '' : (user?.role === 'auto-entrepreneur' ? user?.address || '' : '')
-    ].filter(Boolean);
-    return row.join(',');
+      intervention.status === 'success' ? 'Succès' : 'Échec'
+    ];
+
+    if (selectedUser) {
+      return baseRow;
+    } else {
+      return [
+        ...baseRow,
+        user?.name || 'Utilisateur inconnu',
+        user?.email || '',
+        user?.role || '',
+        user?.role === 'auto-entrepreneur' ? user?.siren || '' : '',
+        user?.role === 'auto-entrepreneur' ? user?.address || '' : ''
+      ];
+    }
   });
 
-  return [headers.join(','), ...rows].join('\n');
+  return [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
 }
 
 export function downloadCSV(content: string, filename: string) {
@@ -53,84 +56,49 @@ export function downloadCSV(content: string, filename: string) {
   URL.revokeObjectURL(link.href);
 }
 
-// Fonction pour convertir une image en base64
-const getImageAsBase64 = async (imagePath: string): Promise<string | null> => {
-  try {
-    const response = await fetch(imagePath);
-    if (!response.ok) return null;
-    
-    const blob = await response.blob();
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
-  } catch (error) {
-    console.warn('Impossible de charger le logo:', error);
-    return null;
-  }
-};
-
-export async function generatePDF(interventions: Intervention[], selectedUser?: User | null, allUsers?: User[]) {
+export function generatePDF(interventions: Intervention[], selectedUser?: User | null, allUsers?: User[]) {
   const doc = new jsPDF();
   
-  // Essayer de charger et ajouter le logo
-  let logoHeight = 0;
-  try {
-    const logoBase64 = await getImageAsBase64('/images/logo.svg');
-    if (logoBase64) {
-      // Ajouter le logo en haut à gauche
-      doc.addImage(logoBase64, 'SVG', 14, 10, 30, 15);
-      logoHeight = 20;
-    }
-  } catch (error) {
-    console.warn('Impossible d\'ajouter le logo au PDF:', error);
-  }
+  let currentY = 20;
   
-  // Ajuster la position du titre en fonction de la présence du logo
-  const titleY = logoHeight > 0 ? 15 : 20;
-  
-  // Ajouter le titre à côté du logo
+  // Ajouter le titre
   doc.setFontSize(20);
   doc.setFont('helvetica', 'bold');
-  doc.text('IRT - Rapport des Interventions', logoHeight > 0 ? 50 : 14, titleY);
+  doc.text('IRT - Rapport des Interventions', 14, currentY);
   
   // Informations de génération
+  currentY += 15;
   doc.setFontSize(12);
   doc.setFont('helvetica', 'normal');
-  const infoY = titleY + 10;
-  doc.text(`Généré le ${format(new Date(), 'dd/MM/yyyy HH:mm', { locale: fr })}`, 14, infoY);
-  
-  let currentY = infoY + 5;
+  doc.text(`Généré le ${format(new Date(), 'dd/MM/yyyy HH:mm', { locale: fr })}`, 14, currentY);
   
   // Informations utilisateur sélectionné
   if (selectedUser) {
-    currentY += 5;
+    currentY += 10;
     doc.setFont('helvetica', 'bold');
     doc.text(`Utilisateur : ${selectedUser.name}`, 14, currentY);
     doc.setFont('helvetica', 'normal');
     
     if (selectedUser.role === 'auto-entrepreneur') {
       if (selectedUser.siren) {
-        currentY += 5;
+        currentY += 7;
         doc.text(`SIREN : ${selectedUser.siren}`, 14, currentY);
       }
       if (selectedUser.address) {
-        currentY += 5;
+        currentY += 7;
         doc.text(`Adresse : ${selectedUser.address}`, 14, currentY);
       }
     }
   }
   
   // Informations de l'entreprise IRT
-  currentY += 10;
+  currentY += 15;
   doc.setFontSize(10);
   doc.setTextColor(100, 100, 100);
   doc.text('IRT - 5 rue Fénelon, 33000 BORDEAUX', 14, currentY);
   
   // Ligne de séparation
-  currentY += 5;
+  currentY += 10;
   doc.setDrawColor(200, 200, 200);
   doc.line(14, currentY, 196, currentY);
   
